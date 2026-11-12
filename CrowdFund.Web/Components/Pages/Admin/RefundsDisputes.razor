@@ -1,0 +1,144 @@
+@page "/admin/refunds"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Refunds & disputes — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5">
+    <h1 class="fw-bold mb-3">Refunds & disputes</h1>
+    <p class="text-muted">Full and partial refunds with history, reasons, PayPal sync, and status tracking.</p>
+
+    <h5>Refund requests</h5>
+    <div class="cf-card mb-4">
+        @foreach (var r in refunds)
+        {
+            <div class="border-bottom py-2 d-flex flex-wrap justify-content-between gap-2 align-items-center">
+                <span class="small">
+                    <strong>@r.Status</strong>
+                    · @r.RefundedAmount.ToString("N2") / @r.RequestedAmount.ToString("N2") of @r.OriginalAmount.ToString("N2") @r.Currency
+                    · @r.ReasonCode
+                    @(r.FrozenForFraud ? " · FROZEN" : "")
+                </span>
+                <span class="d-flex gap-1 flex-wrap">
+                    <button class="btn btn-sm btn-primary" @onclick="() => Process(r.Id)">Process (PayPal)</button>
+                    <button class="btn btn-sm btn-success" @onclick="() => Confirm(r.Id)">Confirm</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick='() => Decide(r.Id, "unfreeze")'>Unfreeze</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick='() => Decide(r.Id, "reject")'>Reject</button>
+                    <button class="btn btn-sm btn-link" @onclick="() => LoadHistory(r.Id)">History</button>
+                </span>
+            </div>
+        }
+        @if (refunds.Count == 0) { <p class="text-muted small mb-0">None</p> }
+    </div>
+
+    @if (history.Count > 0)
+    {
+        <h5>Transaction history</h5>
+        <div class="cf-card mb-4">
+            @foreach (var h in history)
+            {
+                <div class="small border-bottom py-1">
+                    @h.Status · @h.Amount.ToString("N2") @h.Currency · @h.PayPalRefundId · @(h.FromWebhook ? "webhook" : "manual")
+                    <span class="text-muted">@h.CreatedAt.ToString("u")</span>
+                </div>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-info">@message</div>
+    }
+
+    <h5>Disputes</h5>
+    <div class="cf-card">
+        @foreach (var d in disputes)
+        {
+            <div class="border-bottom py-2 small">
+                <strong>@d.Category</strong> · @d.Status · campaign @d.CampaignId.ToString()[..8]…
+                <div>@d.Description</div>
+            </div>
+        }
+        @if (disputes.Count == 0) { <p class="text-muted small mb-0">None</p> }
+    </div>
+</div>
+
+@code {
+    List<RefundVm> refunds = new();
+    List<DisputeVm> disputes = new();
+    List<HistoryVm> history = new();
+    string? message;
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    async Task Reload()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            refunds = await c.GetFromJsonAsync<List<RefundVm>>("/api/admin/refunds") ?? new();
+            disputes = await c.GetFromJsonAsync<List<DisputeVm>>("/api/admin/disputes") ?? new();
+        }
+        catch { }
+    }
+
+    async Task Decide(Guid id, string decision)
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        await c.PostAsJsonAsync($"/api/admin/refunds/{id}/decision", new { decision, amount = 0 });
+        await Reload();
+    }
+
+    async Task Process(Guid id)
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await c.PostAsJsonAsync($"/api/admin/refunds/{id}/process", new { });
+        message = await resp.Content.ReadAsStringAsync();
+        await Reload();
+        await LoadHistory(id);
+    }
+
+    async Task Confirm(Guid id)
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        await c.PostAsync($"/api/admin/refunds/{id}/confirm", null);
+        await Reload();
+    }
+
+    async Task LoadHistory(Guid id)
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        history = await c.GetFromJsonAsync<List<HistoryVm>>($"/api/refunds/{id}/history") ?? new();
+    }
+
+    public class RefundVm
+    {
+        public Guid Id { get; set; }
+        public decimal OriginalAmount { get; set; }
+        public decimal RequestedAmount { get; set; }
+        public decimal RefundedAmount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public string Status { get; set; } = "";
+        public string ReasonCode { get; set; } = "";
+        public bool FrozenForFraud { get; set; }
+    }
+    public class DisputeVm
+    {
+        public Guid CampaignId { get; set; }
+        public string Category { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+    public class HistoryVm
+    {
+        public string Status { get; set; } = "";
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public string? PayPalRefundId { get; set; }
+        public bool FromWebhook { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+}

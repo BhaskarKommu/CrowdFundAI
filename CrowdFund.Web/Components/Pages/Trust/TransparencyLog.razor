@@ -1,0 +1,59 @@
+@page "/transparency-log"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Public transparency log — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:960px;">
+    <h1 class="fw-bold mb-1">Cryptographic transparency log</h1>
+    <p class="text-muted mb-4">Published ledger head hashes (append-only). Not a blockchain — a verifiable publication trail.</p>
+    <p class="small">Verify chain: <code>GET /api/public/transparency-log/verify</code> → <strong>@verifyStatus</strong></p>
+
+    <div class="cf-card">
+        <table class="table table-sm">
+            <thead><tr><th>When</th><th>Campaign</th><th>Ledger head</th><th>Valid</th><th>Published hash</th></tr></thead>
+            <tbody>
+            @foreach (var e in rows)
+            {
+                <tr>
+                    <td class="small text-nowrap">@e.PublishedAt</td>
+                    <td class="small"><a href="/campaigns/@e.CampaignId">@e.CampaignId.ToString()[..8]…</a></td>
+                    <td class="small font-monospace">@(e.LedgerHeadHash.Length > 16 ? e.LedgerHeadHash[..16] + "…" : e.LedgerHeadHash)</td>
+                    <td>@(e.ChainValid ? "✔" : "✖")</td>
+                    <td class="small font-monospace">@(e.PublishedHash.Length > 16 ? e.PublishedHash[..16] + "…" : e.PublishedHash)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        @if (rows.Count == 0) { <p class="text-muted small">No publications yet. Admin can publish or wait for scheduled re-verification.</p> }
+    </div>
+</div>
+
+@code {
+    string verifyStatus = "…";
+    List<Row> rows = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            rows = await client.GetFromJsonAsync<List<Row>>("/api/public/transparency-log") ?? new();
+            var v = await client.GetFromJsonAsync<VerifyDto>("/api/public/transparency-log/verify");
+            verifyStatus = v == null ? "?" : (v.valid ? $"valid ({v.count} entries)" : $"BROKEN at {v.brokenAt}");
+        }
+        catch (Exception ex) { verifyStatus = ex.Message; }
+    }
+
+    public class Row
+    {
+        public Guid CampaignId { get; set; }
+        public string LedgerHeadHash { get; set; } = "";
+        public bool ChainValid { get; set; }
+        public string PublishedHash { get; set; } = "";
+        public DateTime PublishedAt { get; set; }
+    }
+    public class VerifyDto { public bool valid { get; set; } public long? brokenAt { get; set; } public int count { get; set; } }
+}

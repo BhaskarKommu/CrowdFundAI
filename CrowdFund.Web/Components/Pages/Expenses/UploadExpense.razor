@@ -1,0 +1,150 @@
+@page "/campaigns/{CampaignId:guid}/expenses/upload"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Upload Expense — CrowdFund AI</PageTitle>
+
+@if (campaign == null)
+{
+    <div class="page-container py-5"><p>Loading…</p></div>
+}
+else
+{
+    <div class="page-container py-5" style="max-width:640px;">
+        <h1 class="fw-bold mb-2">Upload Expense</h1>
+        <p class="text-muted mb-4">@campaign.Title · AI will extract and validate the receipt</p>
+
+        <div class="cf-card">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Vendor</label>
+                <input class="form-control" @bind="vendor" placeholder="City Hospital Pharmacy" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Amount (@campaign.Currency)</label>
+                <input type="number" class="form-control" @bind="amount" step="0.01" min="0.01" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Date</label>
+                <input type="date" class="form-control" @bind="date" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Category</label>
+                <select class="form-select" @bind="category">
+                    <option value="treatment">Treatment</option>
+                    <option value="medicines">Medicines</option>
+                    <option value="tests">Hospital Tests</option>
+                    <option value="travel">Travel</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Description</label>
+                <textarea class="form-control" rows="2" @bind="description"></textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Receipt (PDF / PNG / JPG, max 10 MB)</label>
+                <InputFile OnChange="OnFile" class="form-control" accept=".pdf,.png,.jpg,.jpeg" />
+                @if (fileName != null) { <div class="small text-muted mt-1">@fileName</div> }
+            </div>
+
+            @if (!string.IsNullOrEmpty(error)) { <div class="alert alert-danger">@error</div> }
+            @if (result != null)
+            {
+                <div class="alert alert-success">
+                    <strong>AI read this receipt</strong> (confidence @((result.ExtractionConfidence * 100).ToString("F0"))%)
+                    <ul class="mb-0 mt-2 small">
+                        <li>Vendor: @result.Vendor</li>
+                        <li>Amount: @result.Amount.ToString("N2") · Category: @result.Category</li>
+                        <li>Status: @result.Status</li>
+                    </ul>
+                    @if (result.ValidationErrors?.Any() == true)
+                    {
+                        <div class="mt-2 text-warning small">Flags: @string.Join("; ", result.ValidationErrors)</div>
+                    }
+                </div>
+            }
+
+            <button class="btn btn-primary cf-btn-primary" disabled="@busy" @onclick="Submit">
+                @(busy ? "Uploading & analyzing…" : "Upload & AI Extract")
+            </button>
+            <a href="/campaigns/@CampaignId/follow-money" class="btn btn-outline-primary ms-2">Follow My Money</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    private Campaign? campaign;
+    private string vendor = "";
+    private decimal amount = 100;
+    private DateTime date = DateTime.Today;
+    private string category = "medicines";
+    private string description = "";
+    private string? fileName;
+    private byte[]? fileBytes;
+    private string? contentType;
+    private bool busy;
+    private string? error;
+    private UploadResult? result;
+
+    protected override async Task OnInitializedAsync()
+    {
+        campaign = await Db.Campaigns.AsNoTracking().FirstOrDefaultAsync(c => c.Id == CampaignId);
+    }
+
+    private async Task OnFile(InputFileChangeEventArgs e)
+    {
+        var f = e.File;
+        if (f.Size > 10 * 1024 * 1024) { error = "Max 10 MB"; return; }
+        fileName = f.Name;
+        contentType = f.ContentType;
+        using var s = f.OpenReadStream(10 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await s.CopyToAsync(ms);
+        fileBytes = ms.ToArray();
+    }
+
+    private async Task Submit()
+    {
+        busy = true; error = null; result = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(amount.ToString(System.Globalization.CultureInfo.InvariantCulture)), "amount");
+            content.Add(new StringContent(vendor), "vendor");
+            content.Add(new StringContent(description), "description");
+            content.Add(new StringContent(category), "category");
+            content.Add(new StringContent(date.ToString("yyyy-MM-dd")), "date");
+            if (fileBytes != null && fileName != null)
+                content.Add(new ByteArrayContent(fileBytes), "file", fileName);
+
+            var resp = await client.PostAsync($"/api/campaigns/{CampaignId}/expenses", content);
+            var json = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) { error = json; return; }
+            result = System.Text.Json.JsonSerializer.Deserialize<UploadResult>(json,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private class UploadResult
+    {
+        public Guid Id { get; set; }
+        public string Vendor { get; set; } = "";
+        public decimal Amount { get; set; }
+        public string Category { get; set; } = "";
+        public string Status { get; set; } = "";
+        public double ExtractionConfidence { get; set; }
+        public List<string>? ValidationErrors { get; set; }
+    }
+}

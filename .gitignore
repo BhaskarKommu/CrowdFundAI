@@ -1,0 +1,35 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.db
+*.db-shm
+*.db-wal
+App_Data/
+**/App_Data/
+*.log
+
+## Secrets — never commit
+appsettings.*.local.json
+secrets.json
+.env
+.env.*
+
+## OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+## Publish
+publish/
+artifacts/
+
+App_Data/logs/
+App_Data/backups/
+.env
+*.bak

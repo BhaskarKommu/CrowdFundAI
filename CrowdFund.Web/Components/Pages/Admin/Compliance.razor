@@ -1,0 +1,121 @@
+@page "/admin/compliance"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Compliance — KYC · AML · Payouts</PageTitle>
+
+<div class="page-container py-5">
+    <h1 class="fw-bold mb-4">Compliance desk</h1>
+    <p><a href="/admin/audit" class="btn btn-outline-primary btn-sm">Security audit log</a></p>
+
+    <div class="mb-3">
+        <button class="btn btn-sm @(tab==0?"btn-primary":"btn-outline-primary") me-1" @onclick="() => tab=0">KYC queue</button>
+        <button class="btn btn-sm @(tab==1?"btn-primary":"btn-outline-primary") me-1" @onclick="() => tab=1">Payouts</button>
+        <button class="btn btn-sm @(tab==2?"btn-primary":"btn-outline-primary")" @onclick="() => tab=2">AML log</button>
+    </div>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info">@msg</div> }
+
+    @if (tab == 0)
+    {
+        @if (kyc.Count == 0) { <p class="text-muted">No pending KYC.</p> }
+        @foreach (var s in kyc)
+        {
+            var id = s.GetProperty("id").GetGuid();
+            var name = s.GetProperty("creatorProfile").GetProperty("legalName").GetString();
+            var status = s.GetProperty("status").ToString();
+            var tier = s.GetProperty("requestedTier").ToString();
+            <div class="cf-card mb-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>@name</strong>
+                    <span class="badge bg-light text-dark border ms-2">@tier</span>
+                    <div class="small text-muted">@status</div>
+                </div>
+                <div>
+                    <button class="btn btn-sm btn-success me-1" @onclick='(() => DecideKyc(id, "approve"))'>Approve</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick='(() => DecideKyc(id, "reject"))'>Reject</button>
+                </div>
+            </div>
+        }
+    }
+    else if (tab == 1)
+    {
+        @foreach (var p in payouts)
+        {
+            var id = p.GetProperty("id").GetGuid();
+            var status = p.GetProperty("status").GetString() ?? "";
+            <div class="cf-card mb-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>@p.GetProperty("grossAmount").GetDecimal().ToString("N2") → net @p.GetProperty("netAmount").GetDecimal().ToString("N2")</strong>
+                    <span class="badge bg-light text-dark border ms-2">@status</span>
+                    <div class="small text-muted">@p.GetProperty("method") · @p.GetProperty("destinationSummary")</div>
+                </div>
+                <div>
+                    @if (status is "Requested" or "UnderReview")
+                    {
+                        <button class="btn btn-sm btn-success me-1" @onclick='(() => DecidePayout(id, "approve"))'>Approve &amp; pay</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick='(() => DecidePayout(id, "reject"))'>Reject</button>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        @foreach (var a in aml)
+        {
+            <div class="border-bottom py-2 small">
+                <strong>@a.GetProperty("subjectName").GetString()</strong>
+                — @a.GetProperty("status") · @a.GetProperty("context")
+            </div>
+        }
+    }
+</div>
+
+@code {
+    int tab = 0;
+    string msg = "";
+    List<System.Text.Json.JsonElement> kyc = new(), payouts = new(), aml = new();
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    async Task Reload()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        kyc = await GetList(client, "/api/admin/kyc/queue");
+        payouts = await GetList(client, "/api/admin/payouts");
+        aml = await GetList(client, "/api/admin/aml");
+    }
+
+    async Task<List<System.Text.Json.JsonElement>> GetList(HttpClient client, string url)
+    {
+        try
+        {
+            var json = await client.GetStringAsync(url);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+        }
+        catch { return new(); }
+    }
+
+    async Task DecideKyc(Guid id, string decision)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsJsonAsync($"/api/admin/kyc/submissions/{id}/decision", new { decision, grantedTier = "Basic" });
+        msg = $"KYC {decision}";
+        await Reload();
+    }
+
+    async Task DecidePayout(Guid id, string decision)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsJsonAsync($"/api/admin/payouts/{id}/decision", new { decision });
+        msg = $"Payout {decision}";
+        await Reload();
+    }
+}

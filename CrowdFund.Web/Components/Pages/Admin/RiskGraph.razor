@@ -1,0 +1,80 @@
+@page "/admin/risk-graph"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Creator risk graph — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="fw-bold mb-0">Creator risk graph</h1>
+        <button class="btn btn-primary cf-btn-primary btn-sm" @onclick="Rebuild" disabled="@busy">Rebuild graph</button>
+    </div>
+    <p class="text-muted">Shared documents, vendors, story similarity, and email links across campaigns.</p>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info">@msg</div> }
+
+    <div class="cf-card">
+        <table class="table table-sm">
+            <thead><tr><th>Type</th><th>From</th><th>To</th><th>Weight</th><th>Detail</th></tr></thead>
+            <tbody>
+            @foreach (var e in edges)
+            {
+                <tr>
+                    <td><code>@e.RelationType</code></td>
+                    <td class="small"><a href="/campaigns/@e.FromCampaignId">@e.FromCampaignId.ToString()[..8]…</a></td>
+                    <td class="small"><a href="/campaigns/@e.ToCampaignId">@e.ToCampaignId.ToString()[..8]…</a></td>
+                    <td>@e.Weight.ToString("0.0")</td>
+                    <td class="small">@e.Detail</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        @if (edges.Count == 0) { <p class="text-muted small">No edges — click Rebuild.</p> }
+    </div>
+</div>
+
+@code {
+    bool busy;
+    string msg = "";
+    List<Edge> edges = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            var json = await client.GetStringAsync("/api/admin/risk-graph");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            edges = doc.RootElement.GetProperty("edges").EnumerateArray().Select(e => new Edge(
+                e.GetProperty("relationType").GetString() ?? "",
+                e.GetProperty("fromCampaignId").GetGuid(),
+                e.GetProperty("toCampaignId").GetGuid(),
+                e.GetProperty("weight").GetDouble(),
+                e.TryGetProperty("detail", out var d) ? d.GetString() ?? "" : ""
+            )).ToList();
+        }
+        catch (Exception ex) { msg = ex.Message; }
+    }
+
+    async Task Rebuild()
+    {
+        busy = true; msg = "";
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsync("/api/admin/risk-graph/rebuild", null);
+            msg = await resp.Content.ReadAsStringAsync();
+            await Load();
+        }
+        catch (Exception ex) { msg = ex.Message; }
+        finally { busy = false; }
+    }
+
+    record Edge(string RelationType, Guid FromCampaignId, Guid ToCampaignId, double Weight, string Detail);
+}

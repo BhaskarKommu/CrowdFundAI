@@ -1,0 +1,69 @@
+@page "/pay/{Slug}"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Pay — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:480px;">
+    @if (error != null)
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+    else if (link == null)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <div class="cf-card">
+            <h1 class="h3 fw-bold">@link.Title</h1>
+            <p class="text-muted">@link.Description</p>
+            <p class="fs-4 fw-bold">@link.Amount.ToString("N2") @link.Currency</p>
+            <button class="btn btn-primary cf-btn-primary w-100" disabled="@busy" @onclick="Pay">
+                @(busy ? "Processing…" : "Pay with PayPal")
+            </button>
+            @if (success != null) { <div class="alert alert-success mt-3 small">@success</div> }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+    LinkInfo? link;
+    string? error, success;
+    bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+            link = await c.GetFromJsonAsync<LinkInfo>($"/api/public/pay/{Slug}");
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    async Task Pay()
+    {
+        busy = true; error = null;
+        try
+        {
+            var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await c.PostAsync($"/api/public/pay/{Slug}/checkout", null);
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) error = body;
+            else success = "Payment completed. " + body;
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    public class LinkInfo
+    {
+        public string Title { get; set; } = "";
+        public string? Description { get; set; }
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "USD";
+    }
+}

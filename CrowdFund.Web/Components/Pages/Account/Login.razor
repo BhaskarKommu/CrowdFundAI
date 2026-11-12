@@ -1,0 +1,72 @@
+@page "/Account/Login"
+@using Microsoft.AspNetCore.WebUtilities
+
+<PageTitle>Login — CrowdFund AI</PageTitle>
+
+<div class="cf-auth-wrap">
+    <div class="cf-auth-card">
+        <div class="text-center mb-4">
+            <div class="cf-logo justify-content-center mb-3">
+                <span class="cf-logo-icon">♥</span> CrowdFund AI
+            </div>
+            <h3 class="fw-bold mb-1">Welcome Back</h3>
+            <p class="text-muted small mb-0">Sign in to your account</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="alert alert-danger py-2">@ErrorMessage</div>
+        }
+
+        @* Cookie auth must run in a full HTTP POST (not Blazor circuit) *@
+        <form method="post" action="/Account/PerformLogin">
+            <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+            <div class="mb-3">
+                <label class="form-label" for="email">Email Address</label>
+                <input id="email" name="email" type="email" class="form-control" placeholder="you@example.com" required autocomplete="username" value="@PrefillEmail" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="password">Password</label>
+                <input id="password" name="password" type="password" class="form-control" placeholder="Enter your password" required autocomplete="current-password" />
+            </div>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <label class="form-check mb-0 small">
+                    <input type="checkbox" class="form-check-input" name="remember" value="true" checked /> Remember me
+                </label>
+                <span class="small text-muted">Forgot password?</span>
+            </div>
+            <button type="submit" class="btn btn-primary cf-btn-primary w-100 btn-lg">Sign In</button>
+        </form>
+
+        <div class="text-center my-3">
+            <span class="small text-muted">or continue with</span>
+        </div>
+        <button type="button" class="btn btn-outline-secondary w-100 mb-3" disabled title="Coming soon">
+            <span class="me-1">G</span> Continue with Google
+        </button>
+        <p class="text-center mb-0 small">
+            Don't have an account? <a href="/Account/Register" class="fw-semibold">Sign Up</a>
+        </p>
+        <div class="mt-3 small text-muted" style="background:#F8F7FF;border-radius:12px;padding:0.75rem 1rem;">
+            <div class="fw-semibold text-dark mb-1">Demo logins</div>
+            <div>Admin: <code>admin@crowdfundai.demo</code> / <code>Admin123!</code></div>
+            <div>Auditor: <code>auditor@crowdfundai.demo</code> / <code>Auditor123!</code></div>
+            <div>Creator: <code>creator1@crowdfundai.demo</code> / <code>Creator123!</code></div>
+            <div>Donor: <code>donor1@crowdfundai.demo</code> / <code>Donor123!</code></div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorMessage { get; set; }
+
+    [SupplyParameterFromQuery(Name = "email")]
+    public string? PrefillEmail { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    private string SafeReturnUrl =>
+        string.IsNullOrWhiteSpace(ReturnUrl) || !ReturnUrl.StartsWith("/") ? "/" : ReturnUrl;
+}

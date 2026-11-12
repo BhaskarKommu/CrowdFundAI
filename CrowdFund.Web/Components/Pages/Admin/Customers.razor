@@ -1,0 +1,110 @@
+@page "/admin/customers"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Customers — CrowdFund AI</PageTitle>
+
+<div class="page-container py-4">
+    <h1 class="fw-bold mb-2">Customer management</h1>
+    <p class="text-muted small">Profiles, PayPal IDs, payments, subscriptions, refunds, vault methods</p>
+
+    <div class="cf-card mb-3">
+        <div class="row g-2">
+            <div class="col-md-8">
+                <input class="form-control form-control-sm" @bind="search" placeholder="Search email, name, PayPal id…" />
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-sm btn-primary w-100" @onclick="Load">Search</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="cf-card mb-3">
+        @foreach (var c in customers)
+        {
+            <div class="border-bottom py-2 d-flex justify-content-between gap-2 small">
+                <div>
+                    <strong>@(c.DisplayName ?? "—")</strong> · @c.Email
+                    <div class="text-muted">PayPal payer: @(c.PayPalPayerId ?? "—") · customer: @(c.PayPalCustomerId ?? "—")</div>
+                </div>
+                <button class="btn btn-link btn-sm" @onclick="() => Open(c.Id)">Open</button>
+            </div>
+        }
+        @if (customers.Count == 0) { <p class="text-muted small mb-0">No customers</p> }
+    </div>
+
+    @if (selected != null)
+    {
+        <div class="cf-card mb-3">
+            <h5 class="fw-bold">@selected.DisplayName</h5>
+            <p class="small mb-1">@selected.Email · User @selected.UserId</p>
+            <p class="small text-muted">Billing: @selected.BillingName, @selected.BillingLine1, @selected.BillingCity @selected.BillingPostalCode @selected.BillingCountry</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                <button class="btn btn-sm btn-outline-primary" @onclick='() => LoadTab("payments")'>Payments</button>
+                <button class="btn btn-sm btn-outline-primary" @onclick='() => LoadTab("subscriptions")'>Subscriptions</button>
+                <button class="btn btn-sm btn-outline-primary" @onclick='() => LoadTab("refunds")'>Refunds</button>
+            </div>
+            <div class="mb-2">
+                <input class="form-control form-control-sm d-inline-block w-auto" @bind="txnSearch" placeholder="Search customer txns…" />
+                <button class="btn btn-sm btn-secondary" @onclick="SearchTxn">Search txns</button>
+            </div>
+            <pre class="small mb-0" style="white-space:pre-wrap;max-height:360px;overflow:auto;">@panelJson</pre>
+        </div>
+    }
+</div>
+
+@code {
+    string? search, panelJson, txnSearch;
+    List<CustVm> customers = new();
+    CustVm? selected;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        var url = "/api/admin/customers?take=50" + (string.IsNullOrWhiteSpace(search) ? "" : "&search=" + Uri.EscapeDataString(search));
+        try { customers = await c.GetFromJsonAsync<List<CustVm>>(url) ?? new(); } catch { customers = new(); }
+    }
+
+    async Task Open(Guid id)
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        selected = await c.GetFromJsonAsync<CustVm>($"/api/admin/customers/{id}");
+        panelJson = null;
+        await LoadTab("payments");
+    }
+
+    async Task LoadTab(string tab)
+    {
+        if (selected == null) return;
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        panelJson = await c.GetStringAsync($"/api/admin/customers/{selected.Id}/{tab}");
+    }
+
+    async Task SearchTxn()
+    {
+        if (selected == null) return;
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        var q = string.IsNullOrWhiteSpace(txnSearch) ? "" : "?q=" + Uri.EscapeDataString(txnSearch);
+        panelJson = await c.GetStringAsync($"/api/admin/customers/{selected.Id}/transactions/search{q}");
+    }
+
+    public class CustVm
+    {
+        public Guid Id { get; set; }
+        public string? UserId { get; set; }
+        public string? Email { get; set; }
+        public string? DisplayName { get; set; }
+        public string? PayPalPayerId { get; set; }
+        public string? PayPalCustomerId { get; set; }
+        public string? BillingName { get; set; }
+        public string? BillingLine1 { get; set; }
+        public string? BillingCity { get; set; }
+        public string? BillingPostalCode { get; set; }
+        public string? BillingCountry { get; set; }
+    }
+}

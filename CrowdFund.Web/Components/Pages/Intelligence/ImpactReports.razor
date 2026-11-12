@@ -1,0 +1,104 @@
+@page "/campaigns/{CampaignId:guid}/impact-reports"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Impact reports — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Auto impact reports</h1>
+    <p class="text-muted mb-4">Draft from ledger &amp; expenses → edit → publish → send to donors (A9).</p>
+
+    <button class="btn btn-primary cf-btn-primary mb-3" @onclick="Draft" disabled="@busy">Generate AI draft</button>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info">@msg</div> }
+
+    @foreach (var r in reports)
+    {
+        <div class="cf-card mb-3">
+            <div class="d-flex justify-content-between">
+                <strong>@r.Title</strong>
+                <span class="badge bg-light text-dark border">@r.Status</span>
+            </div>
+            <textarea class="form-control form-control-sm my-2" rows="8" @bind="r.BodyMarkdown"></textarea>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-outline-primary" @onclick="() => Save(r)">Save edits</button>
+                <button class="btn btn-sm btn-outline-primary" @onclick="() => Publish(r)">Publish</button>
+                <button class="btn btn-sm btn-primary" @onclick="() => Send(r)">Send to donors</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/api/impact-reports/@r.Id/html" target="_blank">HTML / PDF</a>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    bool busy;
+    string msg = "";
+    List<ReportVm> reports = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            var list = await client.GetFromJsonAsync<List<ReportVm>>($"/api/campaigns/{CampaignId}/impact-reports");
+            reports = list ?? new();
+        }
+        catch { }
+    }
+
+    async Task Draft()
+    {
+        busy = true; msg = "";
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsync($"/api/campaigns/{CampaignId}/impact-reports/draft", null);
+            msg = resp.IsSuccessStatusCode ? "Draft created." : await resp.Content.ReadAsStringAsync();
+            await Load();
+        }
+        catch (Exception ex) { msg = ex.Message; }
+        finally { busy = false; }
+    }
+
+    async Task Save(ReportVm r)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PutAsJsonAsync($"/api/impact-reports/{r.Id}", new { title = r.Title, bodyMarkdown = r.BodyMarkdown });
+        msg = "Saved.";
+        await Load();
+    }
+
+    async Task Publish(ReportVm r)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsync($"/api/impact-reports/{r.Id}/publish", null);
+        msg = "Published.";
+        await Load();
+    }
+
+    async Task Send(ReportVm r)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsync($"/api/impact-reports/{r.Id}/send", null);
+        msg = await resp.Content.ReadAsStringAsync();
+        await Load();
+    }
+
+    public class ReportVm
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string BodyMarkdown { get; set; } = "";
+        public string Status { get; set; } = "";
+    }
+}

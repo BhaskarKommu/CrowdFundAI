@@ -1,0 +1,106 @@
+@page "/recommendations"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Smart matching — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Campaign recommendations</h1>
+    <p class="text-muted mb-4">Embeddings + filters with “why recommended” citations (A8).</p>
+
+    <div class="cf-card mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Interest / query</label>
+                <input class="form-control" @bind="query" placeholder="e.g. childhood cancer treatment" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Category</label>
+                <input class="form-control" @bind="category" placeholder="Medical" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Min trust</label>
+                <input class="form-control" type="number" @bind="minTrust" />
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary cf-btn-primary w-100" @onclick="Search" disabled="@busy">Match</button>
+            </div>
+        </div>
+    </div>
+
+    @foreach (var r in results)
+    {
+        <div class="cf-card mb-3">
+            <div class="d-flex justify-content-between">
+                <h5 class="fw-bold mb-1"><a href="/campaigns/@r.CampaignId">@r.Title</a></h5>
+                <span class="badge bg-light text-dark border">score @r.Score.ToString("0.00")</span>
+            </div>
+            <p class="small text-muted">@r.Category · Trust @r.TrustScore · Transparency @r.TransparencyScore · Raised @r.RaisedAmount.ToString("N0") / @r.GoalAmount.ToString("N0")</p>
+            <div class="small">
+                <strong>Why recommended</strong>
+                <ul class="mb-0">
+                    @foreach (var w in r.Why)
+                    {
+                        <li>@w.Text @if (!string.IsNullOrEmpty(w.Citation)) { <code class="ms-1">@w.Citation</code> }</li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    string query = "medical help children", category = "";
+    int? minTrust = 50;
+    bool busy;
+    List<Rec> results = new();
+
+    protected override async Task OnInitializedAsync() => await Search();
+
+    async Task Search()
+    {
+        busy = true;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var url = $"/api/recommendations?q={Uri.EscapeDataString(query)}&take=8";
+            if (!string.IsNullOrWhiteSpace(category)) url += $"&category={Uri.EscapeDataString(category)}";
+            if (minTrust.HasValue) url += $"&minTrust={minTrust}";
+            var json = await client.GetStringAsync(url);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            results = doc.RootElement.GetProperty("recommendations").EnumerateArray().Select(e => new Rec
+            {
+                CampaignId = e.GetProperty("campaignId").GetGuid(),
+                Title = e.GetProperty("title").GetString() ?? "",
+                Category = e.GetProperty("category").GetString() ?? "",
+                TrustScore = e.GetProperty("trustScore").GetInt32(),
+                TransparencyScore = e.GetProperty("transparencyScore").GetInt32(),
+                RaisedAmount = e.GetProperty("raisedAmount").GetDecimal(),
+                GoalAmount = e.GetProperty("goalAmount").GetDecimal(),
+                Score = e.GetProperty("score").GetDouble(),
+                Why = e.GetProperty("why").EnumerateArray().Select(w => new Why(
+                    w.GetProperty("text").GetString() ?? "",
+                    w.TryGetProperty("citation", out var c) ? c.GetString() : null
+                )).ToList()
+            }).ToList();
+        }
+        catch { results = new(); }
+        finally { busy = false; }
+    }
+
+    class Rec
+    {
+        public Guid CampaignId { get; set; }
+        public string Title { get; set; } = "";
+        public string Category { get; set; } = "";
+        public int TrustScore { get; set; }
+        public int TransparencyScore { get; set; }
+        public decimal RaisedAmount { get; set; }
+        public decimal GoalAmount { get; set; }
+        public double Score { get; set; }
+        public List<Why> Why { get; set; } = new();
+    }
+    record Why(string Text, string? Citation);
+}

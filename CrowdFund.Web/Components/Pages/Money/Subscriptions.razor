@@ -1,0 +1,61 @@
+@page "/subscriptions"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Recurring donations — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:800px;">
+    <h1 class="fw-bold mb-1">Recurring donations</h1>
+    <p class="text-muted mb-4">Subscriptions with optional impact updates. Charges are simulated until live PayPal Billing is connected.</p>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info">@msg</div> }
+
+    @foreach (var s in subs)
+    {
+        <div class="cf-card mb-3 d-flex justify-content-between align-items-center">
+            <div>
+                <strong>@s.Amount.ToString("N2") @s.Currency</strong> · @s.Interval · <span class="badge bg-light text-dark border">@s.Status</span>
+                <div class="small text-muted">Next: @s.NextChargeAt · charges: @s.SuccessfulCharges · impact updates: @(s.SendImpactUpdates ? "on" : "off")</div>
+                <div class="small">Campaign <a href="/campaigns/@s.CampaignId">@s.CampaignId.ToString()[..8]…</a></div>
+            </div>
+            @if (s.Status == "Active")
+            {
+                <button class="btn btn-sm btn-outline-danger" @onclick="() => Cancel(s.Id)">Cancel</button>
+            }
+        </div>
+    }
+    @if (subs.Count == 0) { <p class="text-muted">No subscriptions yet. Start one from a campaign page.</p> }
+</div>
+
+@code {
+    string msg = "";
+    List<Sub> subs = new();
+    protected override async Task OnInitializedAsync()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try { subs = await client.GetFromJsonAsync<List<Sub>>("/api/me/subscriptions") ?? new(); } catch { }
+    }
+    async Task Cancel(Guid id)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsync($"/api/subscriptions/{id}/cancel", null);
+        msg = "Cancelled";
+        subs = await client.GetFromJsonAsync<List<Sub>>("/api/me/subscriptions") ?? new();
+    }
+    public class Sub
+    {
+        public Guid Id { get; set; }
+        public Guid CampaignId { get; set; }
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public string Interval { get; set; } = "";
+        public string Status { get; set; } = "";
+        public DateTime NextChargeAt { get; set; }
+        public int SuccessfulCharges { get; set; }
+        public bool SendImpactUpdates { get; set; }
+    }
+}

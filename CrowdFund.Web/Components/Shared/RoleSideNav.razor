@@ -1,0 +1,152 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+
+<nav class="cf-side-nav" aria-label="Role navigation">
+    <div class="cf-side-nav-header mb-2">
+        <div class="small text-muted text-uppercase fw-semibold" style="letter-spacing:.04em;font-size:.7rem;">Workspace</div>
+        <div class="fw-bold text-dark" style="font-size:.95rem;">@RoleLabel</div>
+        @if (!string.IsNullOrEmpty(userName))
+        {
+            <div class="small text-muted text-truncate" title="@userName">@userName</div>
+        }
+    </div>
+
+    <NavLink class="nav-link-item" href="/dashboard" Match="NavLinkMatch.All">
+        <span class="icon">⌂</span> Overview
+    </NavLink>
+
+    <AuthorizeView Roles="Donor,Admin">
+        <Authorized>
+            <div class="cf-side-section">Donor</div>
+            <NavLink class="nav-link-item" href="/donor">
+                <span class="icon">♥</span> My impact
+            </NavLink>
+            <NavLink class="nav-link-item" href="/campaigns">
+                <span class="icon">🔍</span> Explore
+            </NavLink>
+            <NavLink class="nav-link-item" href="/chat">
+                <span class="icon">💬</span> AI Assistant
+            </NavLink>
+            <NavLink class="nav-link-item" href="/premium">
+                <span class="icon">⭐</span> Premium
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="Creator,Admin">
+        <Authorized>
+            <div class="cf-side-section">Creator</div>
+            <NavLink class="nav-link-item" href="/creator">
+                <span class="icon">🚀</span> Creator hub
+            </NavLink>
+            <NavLink class="nav-link-item" href="/campaigns/create">
+                <span class="icon">＋</span> Create campaign
+            </NavLink>
+            <NavLink class="nav-link-item" href="/kyc">
+                <span class="icon">🪪</span> KYC
+            </NavLink>
+            <NavLink class="nav-link-item" href="/payouts">
+                <span class="icon">🏦</span> Payouts
+            </NavLink>
+            <NavLink class="nav-link-item" href="/invoices">
+                <span class="icon">📄</span> Invoices & links
+            </NavLink>
+            <NavLink class="nav-link-item" href="/premium">
+                <span class="icon">⭐</span> Premium review
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="Auditor,Admin">
+        <Authorized>
+            <div class="cf-side-section">Auditor</div>
+            <NavLink class="nav-link-item" href="/auditor">
+                <span class="icon">🔎</span> Auditor desk
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="Admin">
+        <Authorized>
+            <div class="cf-side-section">Admin</div>
+            <NavLink class="nav-link-item" href="/admin" Match="NavLinkMatch.All">
+                <span class="icon">⚙</span> Review queue
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/customers">
+                <span class="icon">👥</span> Customers
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/transactions">
+                <span class="icon">💳</span> Transactions
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/payments">
+                <span class="icon">🔌</span> Payment gateway
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/compliance">
+                <span class="icon">🛡</span> Compliance
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/refunds">
+                <span class="icon">↩</span> Refunds
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/risk-graph">
+                <span class="icon">🕸</span> Risk graph
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/tenants">
+                <span class="icon">🏢</span> Tenants
+            </NavLink>
+            <NavLink class="nav-link-item" href="/admin/audit">
+                <span class="icon">📋</span> Audit log
+            </NavLink>
+            <NavLink class="nav-link-item" href="/enterprise">
+                <span class="icon">📊</span> Enterprise
+            </NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <div class="cf-side-section">Account</div>
+    <NavLink class="nav-link-item" href="/">
+        <span class="icon">🏠</span> Public home
+    </NavLink>
+    <form action="/Account/Logout" method="post" class="mt-1">
+        <button type="submit" class="cf-side-logout">Sign out</button>
+    </form>
+</nav>
+
+@code {
+    [Parameter] public string? ActiveRole { get; set; }
+
+    private string? userName;
+    private List<string> roles = new();
+
+    private string RoleLabel
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(ActiveRole))
+            {
+                return ActiveRole switch
+                {
+                    "Admin" => "Admin console",
+                    "Creator" => "Creator workspace",
+                    "Donor" => "Donor workspace",
+                    "Auditor" => "Auditor workspace",
+                    _ => "Your workspace"
+                };
+            }
+            if (roles.Contains("Admin")) return "Admin console";
+            if (roles.Contains("Creator")) return "Creator workspace";
+            if (roles.Contains("Auditor")) return "Auditor workspace";
+            if (roles.Contains("Donor")) return "Donor workspace";
+            return "Your workspace";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        userName = state.User.Identity?.Name;
+        roles = state.User.FindAll(System.Security.Claims.ClaimTypes.Role)
+            .Select(c => c.Value).Distinct().ToList();
+    }
+}

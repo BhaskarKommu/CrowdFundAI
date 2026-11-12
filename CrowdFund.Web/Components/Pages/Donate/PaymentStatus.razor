@@ -1,0 +1,64 @@
+@page "/payments/status/{DonationId:guid}"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Payment status - CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:640px;">
+    <h1 class="fw-bold mb-3">Payment status</h1>
+    @if (status == null)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <div class="cf-card">
+            <div class="d-flex justify-content-between">
+                <span class="badge bg-primary">@status.Status</span>
+                <code class="small">@status.TransactionReference</code>
+            </div>
+            <p class="mt-3 mb-1"><strong>@status.Amount.ToString("N2") @status.Currency</strong></p>
+            <p class="small text-muted">Captured: @status.CapturedAmount.ToString("N2") · Authorized: @status.AuthorizedAmount.ToString("N2")</p>
+            <p class="small">@status.StatusDetail</p>
+            <ul class="small text-muted">
+                <li>Order: @status.OrderId</li>
+                <li>Authorization: @status.AuthorizationId</li>
+                <li>Capture: @status.CaptureId</li>
+            </ul>
+            <button class="btn btn-outline-primary btn-sm" @onclick="Refresh">Refresh</button>
+            @if (status.Status == "Captured")
+            {
+                <a class="btn btn-primary btn-sm ms-2" href="/receipt/@DonationId">Receipt</a>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid DonationId { get; set; }
+    StatusVm? status;
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    async Task Refresh()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        status = await client.GetFromJsonAsync<StatusVm>($"/api/payments/orders/{DonationId}/status");
+    }
+
+    public class StatusVm
+    {
+        public string Status { get; set; } = "";
+        public string? StatusDetail { get; set; }
+        public decimal Amount { get; set; }
+        public decimal AuthorizedAmount { get; set; }
+        public decimal CapturedAmount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public string? TransactionReference { get; set; }
+        public string? OrderId { get; set; }
+        public string? AuthorizationId { get; set; }
+        public string? CaptureId { get; set; }
+    }
+}

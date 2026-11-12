@@ -1,0 +1,128 @@
+@page "/creator"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Creator,Admin")]
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Creator Hub — CrowdFund AI</PageTitle>
+
+<div class="py-2">
+            <div class="cf-dash-hero">
+                <h1>Creator hub</h1>
+                <p>Launch campaigns, stay verified, and move money with full transparency.</p>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Your campaigns</div>
+                        <div class="value">@campaignCount</div>
+                        <div class="hint">All time</div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Total raised</div>
+                        <div class="value">@totalRaised.ToString("N0")</div>
+                        <div class="hint">Across campaigns</div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Live / active</div>
+                        <div class="value">@liveCount</div>
+                        <div class="hint">Currently fundraising</div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Avg trust</div>
+                        <div class="value">@(avgTrust > 0 ? avgTrust.ToString("0") : "—")</div>
+                        <div class="hint">Trust score</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cf-quick-grid mb-4">
+                <a class="cf-quick-tile" href="/campaigns/create"><span class="tile-icon">＋</span>Create campaign</a>
+                <a class="cf-quick-tile" href="/kyc"><span class="tile-icon">🪪</span>KYC status</a>
+                <a class="cf-quick-tile" href="/payouts"><span class="tile-icon">🏦</span>Payouts</a>
+                <a class="cf-quick-tile" href="/invoices"><span class="tile-icon">📄</span>Invoices</a>
+                <a class="cf-quick-tile" href="/chat"><span class="tile-icon">💬</span>AI help</a>
+                <a class="cf-quick-tile" href="/campaigns"><span class="tile-icon">📋</span>All campaigns</a>
+            </div>
+
+            <div class="cf-card">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h5 class="fw-bold mb-0">Your campaigns</h5>
+                    <a href="/campaigns/create" class="btn btn-sm btn-primary cf-btn-primary">New campaign</a>
+                </div>
+                @if (campaigns.Count == 0)
+                {
+                    <p class="text-muted small mb-0">You have not created a campaign yet. <a href="/campaigns/create">Start one</a> and complete KYC for faster verification.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Status</th>
+                                    <th>Trust</th>
+                                    <th>Raised</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (var c in campaigns)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@c.Title</td>
+                                    <td><span class="badge bg-secondary">@c.Status</span></td>
+                                    <td>@c.TrustScore</td>
+                                    <td>@c.RaisedAmount.ToString("N0")</td>
+                                    <td><a href="/campaigns/@c.Id" class="small fw-semibold">Open</a></td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+@code {
+    private string? userId;
+    private int campaignCount;
+    private int liveCount;
+    private decimal totalRaised;
+    private double avgTrust;
+    private List<Campaign> campaigns = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return;
+
+        campaigns = await Db.Campaigns.AsNoTracking()
+            .Where(c => c.CreatorId == userId)
+            .OrderByDescending(c => c.CreatedAt)
+            .Take(25)
+            .ToListAsync();
+
+        campaignCount = campaigns.Count;
+        // If we only took 25, recount for accuracy
+        campaignCount = await Db.Campaigns.CountAsync(c => c.CreatorId == userId);
+        totalRaised = await Db.Campaigns.Where(c => c.CreatorId == userId).SumAsync(c => (decimal?)c.RaisedAmount) ?? 0;
+        liveCount = await Db.Campaigns.CountAsync(c => c.CreatorId == userId && c.Status == CampaignStatus.Published);
+        var scores = await Db.Campaigns.Where(c => c.CreatorId == userId && c.TrustScore > 0).Select(c => (double)c.TrustScore).ToListAsync();
+        avgTrust = scores.Count > 0 ? scores.Average() : 0;
+    }
+}

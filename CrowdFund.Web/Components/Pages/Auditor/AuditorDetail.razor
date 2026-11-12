@@ -1,0 +1,66 @@
+@page "/auditor/campaigns/{Id:guid}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Auditor,Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Auditor review — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:960px;">
+    <a href="/auditor" class="small">← Back</a>
+    <h1 class="fw-bold mt-2">@title</h1>
+    <p class="text-muted">Read-only dossier · Trust @trust · Transparency @transparency</p>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="cf-card">
+                <h5 class="fw-bold">Flags</h5>
+                @foreach (var f in flags)
+                {
+                    <div class="border-bottom py-2 small"><strong>@f.Rule</strong> (@f.Severity) — @f.Explanation</div>
+                }
+                @if (flags.Count == 0) { <p class="text-muted small mb-0">None</p> }
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="cf-card">
+                <h5 class="fw-bold">Risk edges</h5>
+                @foreach (var e in risk)
+                {
+                    <div class="small border-bottom py-1"><code>@e.RelationType</code> w=@e.Weight — @e.Detail</div>
+                }
+                @if (risk.Count == 0) { <p class="text-muted small mb-0">None</p> }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    string title = "", trust = "", transparency = "";
+    List<Flag> flags = new();
+    List<Risk> risk = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            var json = await client.GetStringAsync($"/api/auditor/campaigns/{Id}");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var c = doc.RootElement.GetProperty("campaign");
+            title = c.GetProperty("title").GetString() ?? "";
+            trust = c.GetProperty("trustScore").GetInt32().ToString();
+            transparency = c.GetProperty("transparencyScore").GetInt32().ToString();
+            flags = doc.RootElement.GetProperty("flags").EnumerateArray()
+                .Select(f => new Flag(f.GetProperty("rule").GetString() ?? "", f.GetProperty("severity").GetString() ?? "", f.GetProperty("explanation").GetString() ?? "")).ToList();
+            risk = doc.RootElement.GetProperty("riskEdges").EnumerateArray()
+                .Select(e => new Risk(e.GetProperty("relationType").GetString() ?? "", e.GetProperty("weight").GetDouble(), e.TryGetProperty("detail", out var d) ? d.GetString() ?? "" : "")).ToList();
+        }
+        catch { }
+    }
+    record Flag(string Rule, string Severity, string Explanation);
+    record Risk(string RelationType, double Weight, string Detail);
+}

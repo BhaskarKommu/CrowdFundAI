@@ -1,0 +1,165 @@
+@page "/campaigns"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+
+@inject NavigationManager Nav
+<HeadContent>
+    <meta name="description" content="Browse published crowdfunding campaigns with trust and transparency scores." />
+    <link rel="canonical" href="@(Nav.BaseUri.TrimEnd('/'))/campaigns" />
+    <meta property="og:title" content="Campaigns — CrowdFund AI" />
+    <meta property="og:description" content="Browse published crowdfunding campaigns with trust and transparency scores." />
+    <meta property="og:url" content="@(Nav.BaseUri.TrimEnd('/'))/campaigns" />
+    <meta name="twitter:card" content="summary" />
+</HeadContent>
+<PageTitle>Explore Campaigns — CrowdFund AI</PageTitle>
+
+<div class="cf-hero" style="padding: 2.5rem 0 1.5rem;">
+    <div class="page-container">
+        <h1 class="cf-section-title mb-1">Explore Campaigns</h1>
+        <p class="cf-section-sub mb-4">Find verified campaigns and make a difference</p>
+
+        <div class="row g-2 mb-3 align-items-end">
+            <div class="col-md-5">
+                <div class="input-group">
+                    <input class="form-control" @bind="searchQ" @bind:event="oninput" placeholder="Search campaigns…" />
+                    <button class="btn btn-primary cf-btn-primary" @onclick="ApplySearch">Search</button>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <input class="form-control form-control-sm" @bind="countryFilter" @bind:event="oninput" placeholder="Country (IN, US…)" />
+            </div>
+            <div class="col-md-2">
+                <input class="form-control form-control-sm" @bind="cityFilter" @bind:event="oninput" placeholder="City" />
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-sm btn-outline-primary" @onclick="ApplyLocation">Filter</button>
+                <button class="btn btn-sm btn-link" @onclick="ClearLocation">Clear</button>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mb-4">
+            <span class="cf-chip @(categoryFilter == null ? "active" : "")" @onclick="() => Filter(null)">All</span>
+            <span class="cf-chip @(categoryFilter == "Medical" ? "active" : "")" @onclick='() => Filter("Medical")'>Medical</span>
+            <span class="cf-chip @(categoryFilter == "Education" ? "active" : "")" @onclick='() => Filter("Education")'>Education</span>
+            <span class="cf-chip @(categoryFilter == "Disaster Relief" ? "active" : "")" @onclick='() => Filter("Disaster Relief")'>Disaster Relief</span>
+            <span class="cf-chip @(categoryFilter == "Other" ? "active" : "")" @onclick='() => Filter("Other")'>Others</span>
+        </div>
+    </div>
+</div>
+
+<div class="page-container pb-5">
+    <div class="row g-4">
+        @if (campaigns == null)
+        {
+            <div class="col-12"><p class="text-muted">Loading campaigns…</p></div>
+        }
+        else if (!campaigns.Any())
+        {
+            <div class="col-12">
+                <div class="cf-card text-center py-5">
+                    <p class="text-muted mb-3">No published campaigns yet.</p>
+                    <a href="/campaigns/create" class="btn btn-primary cf-btn-primary">Create the first campaign</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            @foreach (var c in campaigns)
+            {
+                var pct = c.GoalAmount > 0 ? (int)Math.Min(100, Math.Round(c.RaisedAmount / c.GoalAmount * 100)) : 0;
+                <div class="col-md-6 col-lg-3">
+                    <div class="cf-campaign-card">
+                        <div class="card-img" style="@(string.IsNullOrEmpty(c.CoverImagePath) ? null : $"background-image:url('{c.CoverImagePath}');background-size:cover;background-position:center;")">
+                            @if (string.IsNullOrEmpty(c.CoverImagePath))
+                            {
+                                <span>@(c.Category == "Medical" ? "🏥" : c.Category == "Education" ? "📚" : c.Category == "Disaster Relief" ? "🏠" : "💙")</span>
+                            }
+                            @if (c.TrustScore >= 70)
+                            {
+                                <span class="cf-trust-badge" style="position:absolute;top:10px;right:10px;">✓ Verified</span>
+                            }
+                        </div>
+                        <div class="card-body">
+                            <span class="cf-chip mb-2" style="cursor:default;font-size:0.75rem;">@c.Category</span>
+                            <h5>@c.Title</h5>
+                            @if (!string.IsNullOrEmpty(c.LocationLabel))
+                            {
+                                <div class="small text-muted mb-1">📍 @c.LocationLabel</div>
+                            }
+                            <p class="card-desc">@(c.Story.Length > 90 ? c.Story[..90] + "…" : c.Story)</p>
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between small mb-1">
+                                    <span class="fw-semibold text-primary">@pct% raised</span>
+                                    <span class="text-muted">@c.RaisedAmount.ToString("N0") / @c.GoalAmount.ToString("N0")</span>
+                                </div>
+                                <div class="cf-progress">
+                                    <div class="cf-progress-bar" style="width:@pct%"></div>
+                                </div>
+                            </div>
+                            <a href="/campaigns/@c.Id" class="btn btn-primary cf-btn-primary w-100 mt-auto">Donate Now</a>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private List<Campaign>? campaigns;
+    private string? categoryFilter;
+    private string? countryFilter;
+    private string? cityFilter;
+    private string? searchQ;
+    private string nearMsg = "";
+
+    private async Task ApplyLocation() => await LoadAsync();
+
+    private async Task ApplySearch() => await LoadAsync();
+
+    private async Task ClearLocation()
+    {
+        countryFilter = null;
+        cityFilter = null;
+        searchQ = null;
+        nearMsg = "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var q = Db.Campaigns.AsNoTracking().Where(c => c.Status == CampaignStatus.Published);
+        if (!string.IsNullOrWhiteSpace(categoryFilter))
+            q = q.Where(c => c.Category == categoryFilter);
+        if (!string.IsNullOrWhiteSpace(countryFilter))
+        {
+            var cc = countryFilter.Trim().ToUpperInvariant();
+            q = q.Where(c => c.LocationCountry == cc);
+        }
+        if (!string.IsNullOrWhiteSpace(cityFilter))
+        {
+            var city = cityFilter.Trim();
+            q = q.Where(c => c.LocationCity != null && c.LocationCity.Contains(city));
+        }
+        if (!string.IsNullOrWhiteSpace(searchQ))
+        {
+            var s = searchQ.Trim();
+            q = q.Where(c => c.Title.Contains(s) || c.Story.Contains(s));
+        }
+        campaigns = await q.OrderByDescending(c => c.PublishedAt).Take(60).ToListAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task Filter(string? cat)
+    {
+        categoryFilter = cat;
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,251 @@
+@page "/admin/payments"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Payments admin — CrowdFund AI</PageTitle>
+
+<div class="page-container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h1 class="fw-bold mb-0">Payments dashboard</h1>
+            <p class="text-muted small mb-0">Metrics, gateway config, webhooks, reports</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-sm btn-outline-primary" href="/admin/transactions">Transactions</a>
+            <a class="btn btn-sm btn-outline-primary" href="/admin/refunds">Refunds</a>
+            <a class="btn btn-sm btn-outline-primary" href="/admin/customers">Customers</a>
+            <a class="btn btn-sm btn-outline-primary" href="/invoices">Invoices</a>
+            <a class="btn btn-sm btn-outline-primary" href="/api/admin/transactions/export.csv">Export CSV</a>
+        </div>
+    </div>
+
+    @if (metrics != null)
+    {
+        <div class="row g-2 mb-4">
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Total transactions</div><div class="fs-4 fw-bold">@metrics.TotalTransactions</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Successful</div><div class="fs-4 fw-bold text-success">@metrics.SuccessfulPayments</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Failed</div><div class="fs-4 fw-bold text-danger">@metrics.FailedPayments</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Pending</div><div class="fs-4 fw-bold text-warning">@metrics.PendingPayments</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Payment volume</div><div class="fs-5 fw-bold">@metrics.TotalPaymentVolume.ToString("N2")</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Total refunds</div><div class="fs-5 fw-bold">@metrics.TotalRefundsAmount.ToString("N2") <span class="small text-muted">(@metrics.TotalRefundsCount)</span></div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Active subscriptions</div><div class="fs-4 fw-bold">@metrics.ActiveSubscriptions</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Cancelled subs</div><div class="fs-4 fw-bold">@metrics.CancelledSubscriptions</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Pending payouts</div><div class="fs-4 fw-bold">@metrics.PendingPayouts</div></div></div>
+            <div class="col-6 col-md-3"><div class="cf-card"><div class="text-muted small">Disputes open</div><div class="fs-4 fw-bold">@metrics.DisputedTransactions</div></div></div>
+        </div>
+    }
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="cf-card mb-3">
+                <h5 class="fw-bold">Gateway controls</h5>
+                @if (settings != null)
+                {
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" @bind="payPalEnabled" id="ppEn" />
+                        <label class="form-check-label" for="ppEn">Enable PayPal</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Preferred mode</label>
+                        <select class="form-select form-select-sm" @bind="preferredMode">
+                            <option value="sandbox">Sandbox</option>
+                            <option value="live">Live</option>
+                        </select>
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" @bind="simulateOverride" id="sim" />
+                        <label class="form-check-label" for="sim">Simulate payments (offline)</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Webhook URL override (optional)</label>
+                        <input class="form-control form-control-sm" @bind="webhookUrlOverride" placeholder="@settings.DefaultWebhookUrl" />
+                        <div class="form-text">Register in PayPal Dashboard: <code>@settings.DefaultWebhookUrl</code></div>
+                    </div>
+                    <p class="small text-muted">Config mode: <strong>@settings.ConfigMode</strong> · Simulated: <strong>@settings.IsSimulated</strong> · ClientId: @(settings.ClientIdConfigured ? "set" : "missing") · Secret: @(settings.SecretConfigured ? "set" : "missing") · WebhookId: @(settings.WebhookIdConfigured ? "set" : "missing")</p>
+                    <p class="small text-muted mb-2">@settings.Note</p>
+                    <button class="btn btn-sm btn-primary" @onclick="SaveSettings">Save settings</button>
+                    <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="TestGateway" disabled="@testing">@(testing ? "Testing…" : "Test connection")</button>
+                    @if (testMsg != null) { <div class="alert alert-info small mt-2 mb-0">@testMsg</div> }
+                }
+            </div>
+
+            <div class="cf-card">
+                <h5 class="fw-bold">Payment notifications</h5>
+                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" @bind="nCapture" id="n1" /><label class="form-check-label" for="n1">On capture</label></div>
+                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" @bind="nRefund" id="n2" /><label class="form-check-label" for="n2">On refund</label></div>
+                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" @bind="nSub" id="n3" /><label class="form-check-label" for="n3">On subscription events</label></div>
+                <div class="form-check form-switch"><input class="form-check-input" type="checkbox" @bind="nPayout" id="n4" /><label class="form-check-label" for="n4">On payout</label></div>
+                <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" @bind="nDispute" id="n5" /><label class="form-check-label" for="n5">On dispute</label></div>
+                <input class="form-control form-control-sm mb-2" @bind="notifyWebhook" placeholder="Notification webhook URL" />
+                <input class="form-control form-control-sm mb-2" @bind="notifyEmail" placeholder="Notification email" />
+                <button class="btn btn-sm btn-primary" @onclick="SaveSettings">Save notifications</button>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="cf-card mb-3">
+                <h5 class="fw-bold">Admin actions</h5>
+                <ul class="small mb-0">
+                    <li><a href="/admin/transactions">Manage transactions</a> · search, detail, reconcile, export</li>
+                    <li><a href="/admin/refunds">Process refunds</a></li>
+                    <li><a href="/api/subscriptions/mine">Subscriptions</a> (API) · plans under <code>/api/subscriptions/plans</code></li>
+                    <li><a href="/api/admin/payouts">Manage payouts</a> (API list)</li>
+                    <li><a href="/api/admin/webhooks">View webhook logs</a> · <a href="/api/admin/webhooks/registration-guide">registration guide</a></li>
+                    <li><button class="btn btn-link btn-sm p-0" @onclick="LoadReport">View payment report (30d)</button></li>
+                    <li><button class="btn btn-link btn-sm p-0" @onclick="RetryWebhooks">Retry failed webhooks</button></li>
+                </ul>
+            </div>
+            <div class="cf-card">
+                <h5 class="fw-bold">Webhook logs (recent)</h5>
+                <button class="btn btn-sm btn-outline-secondary mb-2" @onclick="LoadWebhooks">Refresh logs</button>
+                <pre class="small mb-0" style="max-height:280px;overflow:auto;white-space:pre-wrap;">@(webhookJson ?? "Click refresh")</pre>
+            </div>
+            @if (reportJson != null)
+            {
+                <div class="cf-card mt-3">
+                    <h5 class="fw-bold">Payment report</h5>
+                    <pre class="small mb-0" style="max-height:240px;overflow:auto;white-space:pre-wrap;">@reportJson</pre>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    MetricsVm? metrics;
+    SettingsVm? settings;
+    bool payPalEnabled = true, simulateOverride, testing;
+    bool nCapture = true, nRefund = true, nSub = true, nPayout = true, nDispute = true;
+    string preferredMode = "sandbox";
+    string? webhookUrlOverride, notifyWebhook, notifyEmail, testMsg, webhookJson, reportJson;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMetrics();
+        await LoadSettings();
+    }
+
+    HttpClient C() { var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri); return c; }
+
+    async Task LoadMetrics()
+    {
+        try { metrics = await C().GetFromJsonAsync<MetricsVm>("/api/admin/payments/metrics"); } catch { }
+    }
+
+    async Task LoadSettings()
+    {
+        try
+        {
+            settings = await C().GetFromJsonAsync<SettingsVm>("/api/admin/payments/settings");
+            if (settings == null) return;
+            payPalEnabled = settings.PayPalEnabled;
+            preferredMode = settings.PreferredMode ?? "sandbox";
+            simulateOverride = settings.SimulateOverride;
+            webhookUrlOverride = settings.WebhookUrlOverride;
+            if (settings.Notifications != null)
+            {
+                nCapture = settings.Notifications.NotifyOnCapture;
+                nRefund = settings.Notifications.NotifyOnRefund;
+                nSub = settings.Notifications.NotifyOnSubscription;
+                nPayout = settings.Notifications.NotifyOnPayout;
+                nDispute = settings.Notifications.NotifyOnDispute;
+                notifyWebhook = settings.Notifications.NotificationWebhookUrl;
+                notifyEmail = settings.Notifications.NotificationEmail;
+            }
+        }
+        catch { }
+    }
+
+    async Task SaveSettings()
+    {
+        var body = new
+        {
+            payPalEnabled,
+            preferredMode,
+            simulateOverride,
+            webhookUrlOverride,
+            notifyOnCapture = nCapture,
+            notifyOnRefund = nRefund,
+            notifyOnSubscription = nSub,
+            notifyOnPayout = nPayout,
+            notifyOnDispute = nDispute,
+            notificationWebhookUrl = notifyWebhook,
+            notificationEmail = notifyEmail
+        };
+        var resp = await C().PutAsJsonAsync("/api/admin/payments/settings", body);
+        testMsg = await resp.Content.ReadAsStringAsync();
+        await LoadSettings();
+    }
+
+    async Task TestGateway()
+    {
+        testing = true;
+        try
+        {
+            var r = await C().PostAsync("/api/admin/payments/gateway/test", null);
+            testMsg = await r.Content.ReadAsStringAsync();
+        }
+        finally { testing = false; }
+    }
+
+    async Task LoadWebhooks()
+    {
+        try { webhookJson = await C().GetStringAsync("/api/admin/webhooks?take=20"); }
+        catch (Exception ex) { webhookJson = ex.Message; }
+    }
+
+    async Task RetryWebhooks()
+    {
+        try { testMsg = await (await C().PostAsync("/api/admin/webhooks/retry-failed", null)).Content.ReadAsStringAsync(); }
+        catch (Exception ex) { testMsg = ex.Message; }
+    }
+
+    async Task LoadReport()
+    {
+        try { reportJson = await C().GetStringAsync("/api/admin/payments/report"); }
+        catch (Exception ex) { reportJson = ex.Message; }
+    }
+
+    public class MetricsVm
+    {
+        public int TotalTransactions { get; set; }
+        public int SuccessfulPayments { get; set; }
+        public int FailedPayments { get; set; }
+        public int PendingPayments { get; set; }
+        public decimal TotalPaymentVolume { get; set; }
+        public decimal TotalRefundsAmount { get; set; }
+        public int TotalRefundsCount { get; set; }
+        public int ActiveSubscriptions { get; set; }
+        public int CancelledSubscriptions { get; set; }
+        public int PendingPayouts { get; set; }
+        public int DisputedTransactions { get; set; }
+    }
+    public class SettingsVm
+    {
+        public bool PayPalEnabled { get; set; }
+        public string? PreferredMode { get; set; }
+        public bool SimulateOverride { get; set; }
+        public string? WebhookUrlOverride { get; set; }
+        public string? DefaultWebhookUrl { get; set; }
+        public string? ConfigMode { get; set; }
+        public bool IsSimulated { get; set; }
+        public bool ClientIdConfigured { get; set; }
+        public bool SecretConfigured { get; set; }
+        public bool WebhookIdConfigured { get; set; }
+        public string? Note { get; set; }
+        public NotifVm? Notifications { get; set; }
+    }
+    public class NotifVm
+    {
+        public bool NotifyOnCapture { get; set; }
+        public bool NotifyOnRefund { get; set; }
+        public bool NotifyOnSubscription { get; set; }
+        public bool NotifyOnPayout { get; set; }
+        public bool NotifyOnDispute { get; set; }
+        public string? NotificationWebhookUrl { get; set; }
+        public string? NotificationEmail { get; set; }
+    }
+}

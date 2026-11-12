@@ -1,0 +1,102 @@
+@page "/orgs/{Id:guid}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Organization — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <a href="/orgs" class="small">← Orgs</a>
+    <h1 class="fw-bold mt-2">Members & approvals</h1>
+
+    <div class="cf-card mb-3">
+        <h5>Add member</h5>
+        <div class="row g-2">
+            <div class="col-md-6"><input class="form-control" @bind="userId" placeholder="User id (Identity)" /></div>
+            <div class="col-md-3">
+                <select class="form-select" @bind="role">
+                    <option>Admin</option><option>Editor</option><option>Finance</option><option>Viewer</option>
+                </select>
+            </div>
+            <div class="col-md-3"><button class="btn btn-outline-primary w-100" @onclick="Add">Add</button></div>
+        </div>
+    </div>
+
+    <div class="cf-card mb-3">
+        <h5>Members</h5>
+        @foreach (var m in members)
+        {
+            <div class="small border-bottom py-1">@m.UserId · @m.Role</div>
+        }
+    </div>
+
+    <div class="cf-card mb-3">
+        <h5>Request approval</h5>
+        <div class="input-group mb-2">
+            <select class="form-select" @bind="action">
+                <option>PublishCampaign</option>
+                <option>RequestPayout</option>
+                <option>Refund</option>
+            </select>
+            <button class="btn btn-primary" @onclick="RequestApproval">Submit</button>
+        </div>
+        @foreach (var a in approvals)
+        {
+            <div class="d-flex justify-content-between border-bottom py-2 small">
+                <span>@a.Action · @a.Status · required @a.RequiredRole</span>
+                @if (a.Status == "Pending")
+                {
+                    <span>
+                        <button class="btn btn-sm btn-success" @onclick='() => Decide(a.Id, "approve")'>Approve</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick='() => Decide(a.Id, "reject")'>Reject</button>
+                    </span>
+                }
+            </div>
+        }
+    </div>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info">@msg</div> }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    string userId = "", role = "Editor", action = "PublishCampaign", msg = "";
+    List<MemberVm> members = new();
+    List<ApprovalVm> approvals = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            members = await c.GetFromJsonAsync<List<MemberVm>>($"/api/orgs/{Id}/members") ?? new();
+            approvals = await c.GetFromJsonAsync<List<ApprovalVm>>($"/api/orgs/{Id}/approvals") ?? new();
+        }
+        catch { }
+    }
+    async Task Add()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        await c.PostAsJsonAsync($"/api/orgs/{Id}/members", new { userId, role });
+        msg = "Member added";
+        await Load();
+    }
+    async Task RequestApproval()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        await c.PostAsJsonAsync($"/api/orgs/{Id}/approvals", new { action, requiredRole = "Admin" });
+        msg = "Approval requested";
+        await Load();
+    }
+    async Task Decide(Guid aid, string decision)
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        await c.PostAsJsonAsync($"/api/approvals/{aid}/decide", new { decision });
+        await Load();
+    }
+    public class MemberVm { public string UserId { get; set; } = ""; public string Role { get; set; } = ""; }
+    public class ApprovalVm { public Guid Id { get; set; } public string Action { get; set; } = ""; public string Status { get; set; } = ""; public string RequiredRole { get; set; } = ""; }
+}

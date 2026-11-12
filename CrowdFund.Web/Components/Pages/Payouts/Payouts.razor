@@ -1,0 +1,120 @@
+@page "/payouts"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Payouts — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Creator payouts</h1>
+    <p class="text-muted mb-4">Request withdrawals after KYC Basic/Enhanced. Fees depend on verification tier. AML is screened on each request.</p>
+
+    <div class="cf-card mb-4">
+        <h5 class="fw-bold">Request payout</h5>
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Campaign ID</label>
+                <input class="form-control" @bind="campaignId" placeholder="Guid of your campaign" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Amount</label>
+                <input class="form-control" type="number" step="0.01" @bind="amount" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Method</label>
+                <select class="form-select" @bind="method">
+                    <option>PayPal</option>
+                    <option>Bank</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary cf-btn-primary w-100" @onclick="Request" disabled="@busy">Request</button>
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @(ok ? "alert-success" : "alert-warning") mt-3 mb-0">@message</div>
+        }
+    </div>
+
+    <div class="cf-card">
+        <h5 class="fw-bold">Your payout history</h5>
+        @if (items.Count == 0)
+        {
+            <p class="text-muted small mb-0">No payouts yet. Complete <a href="/kyc">KYC</a> first.</p>
+        }
+        else
+        {
+            <table class="table table-sm">
+                <thead><tr><th>Date</th><th>Gross</th><th>Fee</th><th>Net</th><th>Status</th><th>Method</th></tr></thead>
+                <tbody>
+                @foreach (var p in items)
+                {
+                    <tr>
+                        <td class="small">@p.CreatedAt.ToString("u")</td>
+                        <td>@p.GrossAmount.ToString("N2")</td>
+                        <td>@p.PlatformFee.ToString("N2")</td>
+                        <td>@p.NetAmount.ToString("N2")</td>
+                        <td><span class="badge bg-light text-dark border">@p.Status</span></td>
+                        <td>@p.Method</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    string campaignId = "", method = "PayPal", message = "";
+    decimal amount = 50;
+    bool busy, ok;
+    List<PayoutRow> items = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            items = await client.GetFromJsonAsync<List<PayoutRow>>("/api/payouts/mine") ?? new();
+        }
+        catch { }
+    }
+
+    async Task Request()
+    {
+        busy = true; message = "";
+        try
+        {
+            if (!Guid.TryParse(campaignId, out var cid))
+            {
+                message = "Invalid campaign id"; ok = false; return;
+            }
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsJsonAsync($"/api/campaigns/{cid}/payouts", new { amount, method });
+            var body = await resp.Content.ReadAsStringAsync();
+            ok = resp.IsSuccessStatusCode;
+            message = ok ? "Payout requested." : body;
+            await Load();
+        }
+        catch (Exception ex) { ok = false; message = ex.Message; }
+        finally { busy = false; }
+    }
+
+    public class PayoutRow
+    {
+        public Guid Id { get; set; }
+        public decimal GrossAmount { get; set; }
+        public decimal PlatformFee { get; set; }
+        public decimal NetAmount { get; set; }
+        public string Status { get; set; } = "";
+        public string Method { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+    }
+}

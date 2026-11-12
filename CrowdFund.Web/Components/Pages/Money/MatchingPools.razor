@@ -1,0 +1,136 @@
+@page "/matching-pools"
+@page "/campaigns/{CampaignId:guid}/matching-pools"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Sponsored matching pools — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:960px;">
+    <h1 class="fw-bold mb-1">Sponsored matching pools</h1>
+    <p class="text-muted mb-4">
+        Corporate or NGO sponsors fund a pool that multiplies eligible donations until the pool is exhausted.
+    </p>
+
+    @if (CampaignId != Guid.Empty)
+    {
+        <div class="cf-card mb-3">
+            <h5 class="fw-bold">Create pool for this campaign</h5>
+            <div class="row g-2">
+                <div class="col-md-4"><input class="form-control" @bind="sponsor" placeholder="Sponsor name" /></div>
+                <div class="col-md-2"><input class="form-control" type="number" @bind="poolTotal" placeholder="Pool $" /></div>
+                <div class="col-md-2"><input class="form-control" type="number" step="0.1" @bind="ratio" placeholder="Ratio" /></div>
+                <div class="col-md-2"><input class="form-control" type="number" @bind="maxPer" placeholder="Max/gift" /></div>
+                <div class="col-md-2"><button class="btn btn-primary w-100" @onclick="Create">Create</button></div>
+            </div>
+            <input class="form-control mt-2" @bind="headline" placeholder="Headline (optional)" />
+            @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+        </div>
+    }
+
+    <div class="row g-3">
+        @foreach (var p in pools)
+        {
+            <div class="col-md-6">
+                <div class="cf-card h-100">
+                    <div class="d-flex justify-content-between">
+                        <strong>@p.SponsorName</strong>
+                        <span class="badge bg-light text-dark border">@p.Status</span>
+                    </div>
+                    <p class="small mb-1">@(p.Headline ?? $"{p.MatchRatio:0.##}× match")</p>
+                    <div class="progress mb-2" style="height:8px;">
+                        <div class="progress-bar" role="progressbar" style="width:@((100 - (double)p.PercentRemaining).ToString("0"))%;background:#6C5CE7"></div>
+                    </div>
+                    <div class="small text-muted">
+                        Remaining <strong>@p.PoolRemaining.ToString("N0")</strong> / @p.PoolTotal.ToString("N0")
+                        · max @p.MaxPerDonation.ToString("N0")/gift
+                        · @p.MatchCount matches
+                    </div>
+                    @if (p.CampaignId == null)
+                    {
+                        <div class="small text-muted">Platform-wide @(string.IsNullOrEmpty(p.EligibleCategories) ? "(all categories)" : $"· {p.EligibleCategories}")</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+    @if (pools.Count == 0) { <p class="text-muted">No active sponsored pools.</p> }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    string sponsor = "Acme Corp", headline = "", msg = "";
+    decimal poolTotal = 5000, ratio = 1, maxPer = 250;
+    List<PoolVm> pools = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            if (CampaignId != Guid.Empty)
+            {
+                var json = await client.GetStringAsync($"/api/campaigns/{CampaignId}/matching-pools");
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                pools = doc.RootElement.GetProperty("pools").EnumerateArray().Select(Parse).ToList();
+            }
+            else
+            {
+                pools = await client.GetFromJsonAsync<List<PoolVm>>("/api/matching-pools") ?? new();
+            }
+        }
+        catch { }
+    }
+
+    static PoolVm Parse(System.Text.Json.JsonElement e) => new()
+    {
+        Id = e.GetProperty("id").GetGuid(),
+        CampaignId = e.TryGetProperty("campaignId", out var c) && c.ValueKind != System.Text.Json.JsonValueKind.Null ? c.GetGuid() : null,
+        SponsorName = e.GetProperty("sponsorName").GetString() ?? "",
+        Headline = e.TryGetProperty("headline", out var h) && h.ValueKind == System.Text.Json.JsonValueKind.String ? h.GetString() : null,
+        MatchRatio = e.GetProperty("matchRatio").GetDecimal(),
+        PoolTotal = e.GetProperty("poolTotal").GetDecimal(),
+        PoolRemaining = e.GetProperty("poolRemaining").GetDecimal(),
+        PercentRemaining = e.TryGetProperty("percentRemaining", out var pr) ? pr.GetDecimal() : 0,
+        MaxPerDonation = e.GetProperty("maxPerDonation").GetDecimal(),
+        MatchCount = e.TryGetProperty("matchCount", out var mc) ? mc.GetInt32() : 0,
+        Status = e.GetProperty("status").GetString() ?? "",
+        EligibleCategories = e.TryGetProperty("eligibleCategories", out var ec) && ec.ValueKind == System.Text.Json.JsonValueKind.String ? ec.GetString() : null
+    };
+
+    async Task Create()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync("/api/matching-pools", new
+        {
+            campaignId = CampaignId,
+            sponsorName = sponsor,
+            headline,
+            matchRatio = ratio,
+            poolTotal,
+            maxPerDonation = maxPer
+        });
+        msg = resp.IsSuccessStatusCode ? "Pool created." : await resp.Content.ReadAsStringAsync();
+        await Load();
+    }
+
+    public class PoolVm
+    {
+        public Guid Id { get; set; }
+        public Guid? CampaignId { get; set; }
+        public string SponsorName { get; set; } = "";
+        public string? Headline { get; set; }
+        public decimal MatchRatio { get; set; }
+        public decimal PoolTotal { get; set; }
+        public decimal PoolRemaining { get; set; }
+        public decimal PercentRemaining { get; set; }
+        public decimal MaxPerDonation { get; set; }
+        public int MatchCount { get; set; }
+        public string Status { get; set; } = "";
+        public string? EligibleCategories { get; set; }
+    }
+}

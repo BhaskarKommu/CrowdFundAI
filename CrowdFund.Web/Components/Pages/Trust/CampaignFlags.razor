@@ -1,0 +1,106 @@
+@page "/campaigns/{CampaignId:guid}/flags"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Campaign flags — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Open flags & replies</h1>
+    <p class="text-muted mb-4">Creators can respond (right of reply). Visibility: Public, Donors only, or Internal.</p>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info">@msg</div> }
+
+    @foreach (var f in flags)
+    {
+        <div class="cf-card mb-3">
+            <div class="d-flex justify-content-between">
+                <strong>@f.Rule</strong>
+                <span class="badge bg-light text-dark border">@f.Severity · @f.Status</span>
+            </div>
+            <p class="mb-2">@f.Explanation</p>
+            <div class="small text-muted mb-2">@f.CreatedAt</div>
+            @foreach (var r in f.Replies)
+            {
+                <div class="border-start border-3 ps-2 mb-2 small" style="border-color:#6C5CE7!important;">
+                    <strong>@r.AuthorRole</strong> · @r.Visibility · @r.CreatedAt
+                    <div>@r.Body</div>
+                </div>
+            }
+            <div class="input-group input-group-sm">
+                <input class="form-control" @bind="f.Draft" placeholder="Your reply…" />
+                <select class="form-select" style="max-width:140px" @bind="f.Visibility">
+                    <option>Public</option>
+                    <option>DonorsOnly</option>
+                    <option>Internal</option>
+                </select>
+                <button class="btn btn-outline-primary" @onclick="() => Reply(f)">Reply</button>
+            </div>
+        </div>
+    }
+    @if (flags.Count == 0) { <p class="text-muted">No flags for this campaign.</p> }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    string msg = "";
+    List<FlagVm> flags = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            var json = await client.GetStringAsync($"/api/campaigns/{CampaignId}/flags");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            flags = doc.RootElement.EnumerateArray().Select(e =>
+            {
+                var replies = e.GetProperty("replies").EnumerateArray().Select(r => new ReplyVm(
+                    r.GetProperty("authorRole").GetString() ?? "",
+                    r.GetProperty("body").GetString() ?? "",
+                    r.GetProperty("visibility").GetString() ?? "",
+                    r.GetProperty("createdAt").GetDateTime().ToString("u")
+                )).ToList();
+                return new FlagVm
+                {
+                    Id = e.GetProperty("id").GetGuid(),
+                    Rule = e.GetProperty("rule").GetString() ?? "",
+                    Severity = e.GetProperty("severity").GetString() ?? "",
+                    Status = e.GetProperty("status").GetString() ?? "",
+                    Explanation = e.GetProperty("explanation").GetString() ?? "",
+                    CreatedAt = e.GetProperty("createdAt").GetDateTime().ToString("u"),
+                    Replies = replies,
+                    Visibility = "Public"
+                };
+            }).ToList();
+        }
+        catch (Exception ex) { msg = ex.Message; }
+    }
+
+    async Task Reply(FlagVm f)
+    {
+        if (string.IsNullOrWhiteSpace(f.Draft)) return;
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync($"/api/flags/{f.Id}/replies", new { body = f.Draft, visibility = f.Visibility });
+        msg = resp.IsSuccessStatusCode ? "Reply posted." : await resp.Content.ReadAsStringAsync();
+        f.Draft = "";
+        await Load();
+    }
+
+    class FlagVm
+    {
+        public Guid Id { get; set; }
+        public string Rule { get; set; } = "";
+        public string Severity { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string Explanation { get; set; } = "";
+        public string CreatedAt { get; set; } = "";
+        public List<ReplyVm> Replies { get; set; } = new();
+        public string Draft { get; set; } = "";
+        public string Visibility { get; set; } = "Public";
+    }
+    record ReplyVm(string AuthorRole, string Body, string Visibility, string CreatedAt);
+}

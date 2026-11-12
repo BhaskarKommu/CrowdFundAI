@@ -1,0 +1,186 @@
+@page "/admin/dossier/{CampaignId:guid}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Auditor")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>AI Dossier — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5">
+    @if (loading) { <p>Loading dossier…</p> }
+    else if (dossier == null) { <p>Not found.</p> }
+    else
+    {
+        <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+            <div>
+                <h1 class="fw-bold mb-1">@dossier.Campaign.Title</h1>
+                <p class="text-muted mb-0">@dossier.Campaign.Category · @dossier.Campaign.Status · Trust @dossier.Campaign.TrustScore</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary" disabled="@busy" @onclick="() => RunVerify()">Run AI Council</button>
+                <button class="btn btn-success" disabled="@busy" @onclick="Approve">Approve</button>
+                <button class="btn btn-warning" disabled="@busy" @onclick="RequestMore">Request more</button>
+                <button class="btn btn-outline-danger" disabled="@busy" @onclick="Reject">Reject</button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert alert-info">@message</div>
+        }
+
+        <div class="row g-4">
+            <div class="col-lg-7">
+                <div class="cf-card mb-4">
+                    <h5 class="fw-bold">Story</h5>
+                    <p style="white-space:pre-wrap;">@dossier.Campaign.Story</p>
+                </div>
+                <div class="cf-card mb-4">
+                    <h5 class="fw-bold">Council findings</h5>
+                    @if (dossier.Verification?.Findings == null || !dossier.Verification.Findings.Any())
+                    {
+                        <p class="text-muted">Run AI Council to generate findings.</p>
+                    }
+                    else
+                    {
+                        @foreach (var f in dossier.Verification.Findings)
+                        {
+                            <div class="border-bottom py-2">
+                                <div class="d-flex justify-content-between">
+                                    <strong>@f.Title</strong>
+                                    <span class="badge @(f.Severity=="High"?"bg-danger":f.Severity=="Medium"?"bg-warning text-dark":"bg-secondary")">@f.Severity · @f.AgentName</span>
+                                </div>
+                                <div class="small text-muted">@f.Detail</div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="cf-card mb-4">
+                    <h5 class="fw-bold">Trust assessment</h5>
+                    <div class="display-6 fw-bold" style="color:var(--cf-primary)">@dossier.Campaign.TrustScore</div>
+                    <p class="small text-muted">AI-assisted risk indicator — not proof. Humans decide approvals.</p>
+                </div>
+                <div class="cf-card mb-4">
+                    <h5 class="fw-bold">Fraud / risk flags</h5>
+                    @if (dossier.Flags == null || !dossier.Flags.Any())
+                    {
+                        <p class="text-muted small">No open flags.</p>
+                    }
+                    else
+                    {
+                        @foreach (var fl in dossier.Flags)
+                        {
+                            <div class="mb-3 pb-2 border-bottom">
+                                <div class="d-flex justify-content-between">
+                                    <strong class="small">@fl.Rule</strong>
+                                    <span class="badge @(fl.Severity=="High"?"bg-danger":"bg-secondary")">@fl.Severity</span>
+                                </div>
+                                <p class="small mb-0">@fl.Explanation</p>
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="cf-card">
+                    <h5 class="fw-bold">Documents</h5>
+                    @if (dossier.Documents == null || !dossier.Documents.Any())
+                    {
+                        <p class="text-muted small">None uploaded.</p>
+                    }
+                    else
+                    {
+                        <ul class="small mb-0">
+                            @foreach (var d in dossier.Documents)
+                            {
+                                <li>@d.FileName <span class="text-muted">(@d.Sha256?[..8]…)</span></li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+        <a href="/admin" class="btn btn-link mt-3">← Back to queue</a>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    private DossierDto? dossier;
+    private bool loading = true;
+    private bool busy;
+    private string? message;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        loading = true;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            dossier = await client.GetFromJsonAsync<DossierDto>($"/api/admin/campaigns/{CampaignId}/dossier");
+        }
+        catch (Exception ex) { message = ex.Message; }
+        finally { loading = false; }
+    }
+
+    private async Task RunVerify()
+    {
+        busy = true; message = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsync($"/api/campaigns/{CampaignId}/verify", null);
+            var body = await resp.Content.ReadAsStringAsync();
+            message = resp.IsSuccessStatusCode ? "Council completed. Refreshing…" : body;
+            await Load();
+        }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private Task Approve() => Decide("approve");
+    private Task RequestMore() => Decide("requestmore");
+    private Task Reject() => Decide("reject");
+
+    private async Task Decide(string decision)
+    {
+        busy = true; message = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsJsonAsync($"/api/admin/campaigns/{CampaignId}/decision", new { decision, note = "" });
+            message = resp.IsSuccessStatusCode ? $"Decision: {decision}" : await resp.Content.ReadAsStringAsync();
+            await Load();
+        }
+        catch (Exception ex) { message = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private class DossierDto
+    {
+        public Camp Campaign { get; set; } = new();
+        public List<Doc>? Documents { get; set; }
+        public Ver? Verification { get; set; }
+        public List<Flag>? Flags { get; set; }
+    }
+    private class Camp
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Story { get; set; } = "";
+        public string Category { get; set; } = "";
+        public string Status { get; set; } = "";
+        public int TrustScore { get; set; }
+        public decimal GoalAmount { get; set; }
+    }
+    private class Doc { public string FileName { get; set; } = ""; public string? Sha256 { get; set; } }
+    private class Ver { public int OverallScore { get; set; } public List<Finding>? Findings { get; set; } }
+    private class Finding { public string AgentName { get; set; } = ""; public string Severity { get; set; } = ""; public string Title { get; set; } = ""; public string Detail { get; set; } = ""; }
+    private class Flag { public string Rule { get; set; } = ""; public string Severity { get; set; } = ""; public string Explanation { get; set; } = ""; public double Score { get; set; } }
+}

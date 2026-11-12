@@ -1,0 +1,97 @@
+@page "/campaigns/{CampaignId:guid}/proofs"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Multimodal proof — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Multimodal proof</h1>
+    <p class="text-muted mb-4">Photos or short video with AI transcript draft. <strong>Human approval required</strong> before payout readiness.</p>
+
+    <div class="cf-card mb-4">
+        <InputFile OnChange="OnFile" />
+        <button class="btn btn-primary cf-btn-primary mt-2" @onclick="Upload" disabled="@(busy || file==null)">Upload proof</button>
+        @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+    </div>
+
+    @foreach (var p in proofs)
+    {
+        <div class="cf-card mb-3">
+            <div class="d-flex justify-content-between">
+                <strong>@p.FileName</strong>
+                <span class="badge bg-light text-dark border">@p.Status · @p.MediaType</span>
+            </div>
+            <p class="small text-muted mb-1">SHA-256: <code>@p.Sha256</code></p>
+            <p class="small">@p.Transcript</p>
+            <p class="small text-muted">@p.AiSummary</p>
+            <a class="btn btn-sm btn-outline-secondary me-1" href="/api/proofs/@p.Id/file" target="_blank">Download</a>
+            @if (p.Status is "PendingHumanReview" or "Uploaded" or "TranscriptReady")
+            {
+                <button class="btn btn-sm btn-success me-1" @onclick='() => Review(p.Id, "approve")'>Approve</button>
+                <button class="btn btn-sm btn-outline-danger" @onclick='() => Review(p.Id, "reject")'>Reject</button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    IBrowserFile? file;
+    bool busy;
+    string msg = "";
+    List<ProofVm> proofs = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    void OnFile(InputFileChangeEventArgs e) => file = e.File;
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try { proofs = await client.GetFromJsonAsync<List<ProofVm>>($"/api/campaigns/{CampaignId}/proofs") ?? new(); }
+        catch { }
+    }
+
+    async Task Upload()
+    {
+        if (file == null) return;
+        busy = true; msg = "";
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            using var content = new MultipartFormDataContent();
+            var stream = file.OpenReadStream(20_000_000);
+            content.Add(new StreamContent(stream), "file", file.Name);
+            var resp = await client.PostAsync($"/api/campaigns/{CampaignId}/proofs", content);
+            msg = resp.IsSuccessStatusCode ? "Uploaded — pending human review." : await resp.Content.ReadAsStringAsync();
+            await Load();
+        }
+        catch (Exception ex) { msg = ex.Message; }
+        finally { busy = false; }
+    }
+
+    async Task Review(Guid id, string decision)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsJsonAsync($"/api/proofs/{id}/review", new { decision, note = decision });
+        msg = $"Marked {decision}.";
+        await Load();
+    }
+
+    public class ProofVm
+    {
+        public Guid Id { get; set; }
+        public string FileName { get; set; } = "";
+        public string MediaType { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string? Transcript { get; set; }
+        public string? AiSummary { get; set; }
+        public string Sha256 { get; set; } = "";
+    }
+}

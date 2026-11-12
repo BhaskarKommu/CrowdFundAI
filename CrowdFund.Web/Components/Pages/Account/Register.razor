@@ -1,0 +1,51 @@
+@page "/Account/Register"
+
+<PageTitle>Sign Up — CrowdFund AI</PageTitle>
+
+<div class="cf-auth-wrap">
+    <div class="cf-auth-card">
+        <div class="text-center mb-4">
+            <div class="cf-logo justify-content-center mb-3">
+                <span class="cf-logo-icon">♥</span> CrowdFund AI
+            </div>
+            <h3 class="fw-bold mb-1">Create Account</h3>
+            <p class="text-muted small mb-0">Join transparent AI-powered fundraising</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="alert alert-danger py-2">@ErrorMessage</div>
+        }
+
+        <form method="post" action="/Account/PerformRegister">
+            <div class="mb-3">
+                <label class="form-label" for="email">Email Address</label>
+                <input id="email" name="email" type="email" class="form-control" placeholder="you@example.com" required autocomplete="username" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="displayName">Display Name</label>
+                <input id="displayName" name="displayName" class="form-control" placeholder="Your name" required />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="password">Password</label>
+                <input id="password" name="password" type="password" class="form-control" placeholder="Create a password" required minlength="6" autocomplete="new-password" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="role">I want to</label>
+                <select id="role" name="role" class="form-select">
+                    <option value="Donor">Donate (Donor)</option>
+                    <option value="Creator">Raise funds (Creator)</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary cf-btn-primary w-100 btn-lg">Create Account</button>
+        </form>
+        <p class="text-center mt-4 mb-0 small">
+            Already have an account? <a href="/Account/Login" class="fw-semibold">Sign In</a>
+        </p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? ErrorMessage { get; set; }
+}

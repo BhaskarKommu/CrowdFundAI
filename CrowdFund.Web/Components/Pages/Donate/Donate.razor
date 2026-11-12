@@ -1,0 +1,268 @@
+@page "/donate/{CampaignId:guid}"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+@inject IJSRuntime JS
+
+<HeadContent>
+    <script src="paypal-smart.js"></script>
+</HeadContent>
+<PageTitle>Make a Donation — CrowdFund AI</PageTitle>
+
+@if (campaign == null)
+{
+    <div class="page-container py-5"><p>Loading…</p></div>
+}
+else
+{
+<div class="cf-hero" style="padding:2rem 0 0.5rem;">
+        <div class="page-container">
+            <h1 class="cf-section-title mb-1">Make a Donation</h1>
+            <p class="cf-section-sub">Your support brings hope</p>
+        </div>
+    </div>
+    <div class="page-container pb-5">
+        <div class="row g-4 justify-content-center">
+            <div class="col-lg-7">
+                <div class="cf-card cf-card-static">
+                    <div class="d-flex gap-3 align-items-center mb-4 p-3 rounded-3" style="background:#F0EDFF;">
+                        <div class="rounded-3 d-flex align-items-center justify-content-center" style="width:64px;height:64px;background:linear-gradient(135deg,#EDE9FE,#DBEAFE);font-size:1.75rem;">💙</div>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold">@campaign.Title</div>
+                            <div class="small text-muted mb-1">@campaign.RaisedAmount.ToString("N0") / @campaign.GoalAmount.ToString("N0") @campaign.Currency · @(PercentRaised)%</div>
+                            <div class="cf-progress" style="height:8px;">
+                                <div class="cf-progress-bar" style="width:@(PercentRaised)%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <label class="form-label fw-semibold">Select Amount</label>
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        @foreach (var a in new[] { 10m, 25m, 50m, 100m, 250m })
+                        {
+                            <button type="button" class="cf-amount-btn @(amount == a ? "active" : "")"
+                                    @onclick="() => amount = a">$@a</button>
+                        }
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label">Other Amount (USD)</label>
+                        <InputNumber class="form-control" @bind-Value="amount" min="1" max="100000" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(error))
+                    {
+                        <div class="alert alert-danger">@error</div>
+                    }
+                    @if (!string.IsNullOrEmpty(successMsg))
+                    {
+                        <div class="alert alert-success">@successMsg</div>
+                    }
+
+                    <button class="btn btn-primary cf-btn-primary w-100 btn-lg" disabled="@(busy || amount <= 0)" @onclick="DonateAsync">
+                        @if (busy) { <span>Processing…</span> }
+                        else { <span>Donate with PayPal @(paypal.IsSimulated ? "(Simulated)" : "")</span> }
+                    </button>
+                    <p class="small text-muted text-center mt-3 mb-0">
+                        🔒 Secure and encrypted payment
+                    </p>
+
+                    <div class="mt-4">
+                        <div class="text-center text-muted small mb-2">— or pay with Smart Buttons —</div>
+                        <div id="paypal-buttons"></div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2 w-100" @onclick="RenderSmartButtons" disabled="@busy">
+                            Load PayPal Smart Buttons
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="cf-secure-panel">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <span style="font-size:1.5rem;">🛡️</span>
+                        <div>
+                            <div class="fw-bold">Secure Payments</div>
+                            <div class="small text-muted">Powered by PayPal</div>
+                        </div>
+                    </div>
+                    <div class="check-item">Instant receipt</div>
+                    <div class="check-item">Track your donation</div>
+                    <div class="check-item">See impact</div>
+                    <div class="check-item">Ledger-backed transparency</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+
+<div class="cf-card mt-3" style="max-width:480px;">
+    <label class="form-label">Optional tip (supports the platform)</label>
+    <input type="number" class="form-control mb-2" @bind="tipAmount" @bind:event="oninput" min="0" step="1" />
+    <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="RefreshFees">Update fee quote</button>
+    @if (feeQuote != null)
+    {
+        <div class="small">
+            <div>Donation: <strong>@feeQuote.GrossDonation.ToString("N2")</strong></div>
+            <div>Tip: @feeQuote.TipAmount.ToString("N2")</div>
+            <div>Platform fee: @feeQuote.PlatformFee.ToString("N2")</div>
+            <div>Processor estimate: @feeQuote.ProcessorFeeEstimate.ToString("N2")</div>
+            <div>Net to campaign (est.): <strong>@feeQuote.NetToCampaign.ToString("N2")</strong></div>
+            <div>You pay: <strong>@feeQuote.TotalChargedToDonor.ToString("N2")</strong></div>
+            <p class="text-muted mt-1 mb-0">@feeQuote.Disclaimer</p>
+        </div>
+    }
+</div>
+
+@code {
+    int PercentRaised => campaign is null || campaign.GoalAmount <= 0
+        ? 0
+        : (int)Math.Min(100, Math.Round(campaign.RaisedAmount / campaign.GoalAmount * 100));
+
+    decimal tipAmount = 0;
+    FeeVm? feeQuote;
+
+    async Task RefreshFees()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var amt = amount; // existing field
+            feeQuote = await client.GetFromJsonAsync<FeeVm>($"/api/fees/quote?amount={amt}&tip={tipAmount}");
+        }
+        catch { }
+    }
+
+    public class FeeVm
+    {
+        public decimal GrossDonation { get; set; }
+        public decimal TipAmount { get; set; }
+        public decimal PlatformFee { get; set; }
+        public decimal ProcessorFeeEstimate { get; set; }
+        public decimal NetToCampaign { get; set; }
+        public decimal TotalChargedToDonor { get; set; }
+        public string Disclaimer { get; set; } = "";
+    }
+
+
+    [Parameter] public Guid CampaignId { get; set; }
+    private Campaign? campaign;
+    private decimal amount = 25;
+    private bool busy;
+    private string? error;
+    private string? successMsg;
+    private CrowdFund.Infrastructure.PayPal.PayPalClient paypal = default!;
+
+    [Inject] public CrowdFund.Infrastructure.PayPal.PayPalClient PaypalClient { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        paypal = PaypalClient;
+        campaign = await Db.Campaigns.AsNoTracking().FirstOrDefaultAsync(c => c.Id == CampaignId);
+    }
+
+    private async Task RenderSmartButtons()
+    {
+        try
+        {
+            busy = true;
+            error = null;
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var cfgJson = await client.GetStringAsync("/api/payments/checkout-config");
+            var baseUri = Nav.BaseUri.TrimEnd('/');
+            var amt = amount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var tip = tipAmount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var js = $@"
+              (async function() {{
+                const config = {cfgJson};
+                await window.crowdFundPayPal.renderButtons('paypal-buttons', {{
+                  config,
+                  createOrderUrl: '{baseUri}/api/donations/create-order-extended',
+                  captureUrl: '{baseUri}/api/donations/capture',
+                  createOrderBody: () => ({{
+                    campaignId: '{CampaignId}',
+                    amount: {amt},
+                    tipAmount: {tip},
+                    currency: 'USD',
+                    preferredMethod: 'smart_buttons'
+                  }}),
+                  onCaptured: (r) => {{
+                    const id = (r && r.donationId) ? r.donationId : window.__cfLastDonationId;
+                    window.location = '{baseUri}/receipt/' + id;
+                  }},
+                  onError: (e) => console.error(e)
+                }});
+              }})();
+            ";
+            await JS.InvokeVoidAsync("eval", js);
+        }
+        catch (Exception ex)
+        {
+            error = "Smart Buttons: " + ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DonateAsync()
+    {
+        busy = true;
+        error = null;
+        successMsg = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+
+            var createResp = await client.PostAsJsonAsync("/api/donations/create-order", new
+            {
+                campaignId = CampaignId,
+                amount,
+                currency = "USD"
+            });
+            if (!createResp.IsSuccessStatusCode)
+            {
+                var err = await createResp.Content.ReadAsStringAsync();
+                error = $"Create order failed: {err}";
+                return;
+            }
+            var create = await createResp.Content.ReadFromJsonAsync<CreateOrderResponse>();
+            if (create == null) { error = "Invalid response"; return; }
+
+            // In simulated mode we immediately capture on the server.
+            // With real PayPal JS SDK, onApprove would call capture after buyer approval.
+            var captureResp = await client.PostAsJsonAsync("/api/donations/capture", new
+            {
+                donationId = create.DonationId,
+                orderId = create.OrderId
+            });
+            if (!captureResp.IsSuccessStatusCode)
+            {
+                var err = await captureResp.Content.ReadAsStringAsync();
+                error = $"Capture failed: {err}";
+                return;
+            }
+            var capture = await captureResp.Content.ReadFromJsonAsync<CaptureResponse>();
+            successMsg = $"Thank you! Donation captured. Ledger hash: {capture?.LedgerHash?[..12]}…";
+            Nav.NavigateTo($"/receipt/{create.DonationId}");
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private record CreateOrderResponse(Guid DonationId, string OrderId, string Status, bool Simulated);
+    private record CaptureResponse(Guid DonationId, string CaptureId, string Status, decimal Amount, string Currency, string LedgerHash, bool Simulated);
+}

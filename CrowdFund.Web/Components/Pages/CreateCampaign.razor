@@ -1,0 +1,204 @@
+@page "/campaigns/create"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Create Campaign — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:720px;">
+    <h1 class="fw-bold mb-4">Create a Campaign</h1>
+
+    <EditForm Model="model" FormName="create-campaign" OnValidSubmit="Submit" class="cf-card">
+        <DataAnnotationsValidator />
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Title</label>
+            <InputText class="form-control" @bind-Value="model.Title" />
+            <ValidationMessage For="() => model.Title" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Category</label>
+            <InputSelect class="form-select" @bind-Value="model.Category">
+                <option value="Medical">Medical</option>
+                <option value="Education">Education</option>
+                <option value="Disaster Relief">Disaster Relief</option>
+                <option value="Other">Other</option>
+            </InputSelect>
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Goal Amount (USD)</label>
+            <InputNumber class="form-control" @bind-Value="model.GoalAmount" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Story</label>
+            <InputTextArea class="form-control" rows="6" @bind-Value="model.Story" />
+            <ValidationMessage For="() => model.Story" />
+        </div>
+        <hr class="my-4" />
+        <h5 class="fw-bold">Location (Geographic SEO)</h5>
+        <p class="small text-muted">Shown on campaign pages and used for near-me discovery. Coordinates optional but improve local search.</p>
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">City</label>
+                <InputText class="form-control" @bind-Value="model.LocationCity" placeholder="e.g. Mumbai" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">State / Region</label>
+                <InputText class="form-control" @bind-Value="model.LocationRegion" placeholder="e.g. MH" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Country (ISO)</label>
+                <InputText class="form-control" @bind-Value="model.LocationCountry" placeholder="IN" maxlength="2" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Latitude</label>
+                <InputNumber class="form-control" @bind-Value="model.Latitude" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Longitude</label>
+                <InputNumber class="form-control" @bind-Value="model.Longitude" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Service radius (km)</label>
+                <InputNumber class="form-control" @bind-Value="model.ServiceRadiusKm" />
+            </div>
+        </div>
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div class="alert alert-danger">@error</div>
+        }
+        <button type="submit" class="btn btn-primary cf-btn-primary" disabled="@saving">
+            @(saving ? "Saving…" : "Save as Draft")
+        </button>
+    </EditForm>
+</div>
+
+
+<div class="cf-card mb-3">
+    <label class="form-label fw-semibold">Campaign template</label>
+    <select class="form-select" @bind="templateKey" @bind:after="OnTemplateChanged">
+        <option value="medical">Medical treatment</option>
+        <option value="education">Education</option>
+        <option value="disaster">Disaster relief</option>
+        <option value="general">General community</option>
+    </select>
+    @if (templateDocs.Count > 0)
+    {
+        <div class="mt-2 small">
+            <strong>Required documents checklist</strong>
+            <ul class="mb-0">
+                @foreach (var d in templateDocs)
+                {
+                    <li>@(d.Required ? "☑" : "○") @d.Label — @d.Description</li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+@code {
+    string templateKey = "medical";
+    List<DocVm> templateDocs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await OnTemplateChanged();
+    }
+
+    async Task OnTemplateChanged()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var json = await client.GetStringAsync($"/api/campaign-templates/{templateKey}");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            templateDocs = doc.RootElement.GetProperty("documents").EnumerateArray().Select(d => new DocVm
+            {
+                Label = d.GetProperty("label").GetString() ?? "",
+                Description = d.GetProperty("description").GetString() ?? "",
+                Required = d.GetProperty("required").GetBoolean()
+            }).ToList();
+        }
+        catch { templateDocs = new(); }
+    }
+
+    public class DocVm { public string Label { get; set; } = ""; public string Description { get; set; } = ""; public bool Required { get; set; } }
+
+
+    private CampaignModel model = new();
+    private bool saving;
+    private string? error;
+
+    public class CampaignModel
+    {
+        public string? LocationCity { get; set; }
+        public string? LocationRegion { get; set; }
+        public string? LocationCountry { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+        public int? ServiceRadiusKm { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string Title { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Story { get; set; } = "";
+        public string Category { get; set; } = "Medical";
+        [System.ComponentModel.DataAnnotations.Range(1, 10_000_000)]
+        public decimal GoalAmount { get; set; } = 1000;
+    }
+
+    private async Task Submit()
+    {
+        saving = true;
+        error = null;
+        try
+        {
+            var state = await AuthState.GetAuthenticationStateAsync();
+            var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? state.User.Identity?.Name;
+            if (string.IsNullOrEmpty(userId))
+            {
+                error = "You must be logged in.";
+                return;
+            }
+
+            var campaign = new Campaign
+            {
+                CreatorId = userId,
+                Title = model.Title,
+                Story = model.Story,
+                Category = model.Category,
+                GoalAmount = model.GoalAmount,
+                Currency = "USD",
+                Status = CampaignStatus.Draft,
+            
+                LocationCity = model.LocationCity,
+                LocationRegion = model.LocationRegion,
+                LocationCountry = string.IsNullOrWhiteSpace(model.LocationCountry) ? null : model.LocationCountry.Trim().ToUpperInvariant(),
+                LocationLabel = CrowdFund.Core.Services.GeoService.BuildLabel(model.LocationCity, model.LocationRegion, model.LocationCountry),
+                Latitude = model.Latitude,
+                Longitude = model.Longitude,
+                ServiceRadiusKm = model.ServiceRadiusKm
+            };
+            Db.Campaigns.Add(campaign);
+            await Db.SaveChangesAsync();
+            Nav.NavigateTo($"/campaigns/{campaign.Id}");
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

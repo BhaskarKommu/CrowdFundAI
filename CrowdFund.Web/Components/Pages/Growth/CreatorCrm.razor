@@ -1,0 +1,110 @@
+@page "/campaigns/{CampaignId:guid}/crm"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Creator CRM — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:960px;">
+    <h1 class="fw-bold mb-1">CRM-lite</h1>
+    <p class="text-muted mb-4">Donor list, opt-in message blasts, and update composer.</p>
+
+    <div class="cf-card mb-3">
+        <h5 class="fw-bold">Donors</h5>
+        <table class="table table-sm">
+            <thead><tr><th>Donor</th><th>Total</th><th>Gifts</th><th>Messages OK</th></tr></thead>
+            <tbody>
+            @foreach (var d in donors)
+            {
+                <tr>
+                    <td class="small">@(d.DonorId ?? "guest")</td>
+                    <td>@d.Total.ToString("N0")</td>
+                    <td>@d.Gifts</td>
+                    <td>@(d.OptInMessages ? "Yes" : "No")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="cf-card">
+                <h5 class="fw-bold">Message blast (opt-in only)</h5>
+                <input class="form-control mb-2" @bind="subject" placeholder="Subject" />
+                <textarea class="form-control mb-2" rows="4" @bind="blastBody"></textarea>
+                <button class="btn btn-primary cf-btn-primary" @onclick="Blast">Send to opted-in donors</button>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="cf-card">
+                <h5 class="fw-bold">Update composer</h5>
+                <input class="form-control mb-2" @bind="updateTitle" placeholder="Title" />
+                <textarea class="form-control mb-2" rows="4" @bind="updateBody"></textarea>
+                <button class="btn btn-outline-primary" @onclick="PostUpdate">Publish update</button>
+            </div>
+        </div>
+    </div>
+    @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-3">@msg</div> }
+
+    <div class="cf-card mt-3">
+        <h5 class="fw-bold">Share / SEO</h5>
+        <button class="btn btn-sm btn-outline-primary" @onclick="MakeShort">Create short link</button>
+        @if (!string.IsNullOrEmpty(shortPath)) { <code class="ms-2">@shortPath</code> }
+        <pre class="small mt-2 mb-0">@seoJson</pre>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    string subject = "Thank you", blastBody = "", updateTitle = "Progress update", updateBody = "", msg = "", shortPath = "", seoJson = "";
+    List<DonorVm> donors = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            donors = await client.GetFromJsonAsync<List<DonorVm>>($"/api/campaigns/{CampaignId}/crm/donors") ?? new();
+            seoJson = await client.GetStringAsync($"/api/campaigns/{CampaignId}/seo");
+        }
+        catch { }
+    }
+
+    async Task Blast()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync($"/api/campaigns/{CampaignId}/crm/blast", new { subject, body = blastBody });
+        msg = await resp.Content.ReadAsStringAsync();
+    }
+
+    async Task PostUpdate()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsJsonAsync($"/api/campaigns/{CampaignId}/updates", new { title = updateTitle, body = updateBody });
+        msg = "Update published.";
+    }
+
+    async Task MakeShort()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync("/api/short-links", new { campaignId = CampaignId });
+        var json = await resp.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        shortPath = doc.RootElement.GetProperty("path").GetString() ?? "";
+    }
+
+    public class DonorVm
+    {
+        public string? DonorId { get; set; }
+        public decimal Total { get; set; }
+        public int Gifts { get; set; }
+        public bool OptInMessages { get; set; }
+    }
+}

@@ -1,0 +1,164 @@
+@page "/kyc"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Creator verification (KYC) — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:800px;">
+    <h1 class="fw-bold mb-1">Creator verification</h1>
+    <p class="text-muted mb-4">Verify identity to raise higher goals and request payouts. AML checks run on save.</p>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert @(ok ? "alert-success" : "alert-danger")">@message</div>
+    }
+
+    <div class="cf-card mb-4">
+        <h5 class="fw-bold">Current tier: <span class="text-primary">@tier</span></h5>
+        <p class="small text-muted mb-0">
+            Max campaign goal: @maxGoal.ToString("N0") · Max single payout: @maxPayout.ToString("N0") ·
+            Payout fee: @((feeRate * 100).ToString("0"))% · Can payout: @canPayout
+        </p>
+        @if (!string.IsNullOrEmpty(aml))
+        {
+            <p class="small mt-2 mb-0">Last AML status: <strong>@aml</strong></p>
+        }
+    </div>
+
+    <div class="cf-card mb-4">
+        <h5 class="fw-bold">Profile & tax details</h5>
+        <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Legal name</label><input class="form-control" @bind="legalName" /></div>
+            <div class="col-md-6"><label class="form-label">Organization</label><input class="form-control" @bind="orgName" /></div>
+            <div class="col-md-4"><label class="form-label">Country</label><input class="form-control" @bind="country" /></div>
+            <div class="col-md-4"><label class="form-label">State</label><input class="form-control" @bind="state" /></div>
+            <div class="col-md-4"><label class="form-label">Tax ID (PAN / EIN)</label><input class="form-control" @bind="taxId" /></div>
+            <div class="col-12"><label class="form-label">Address</label><input class="form-control" @bind="address" /></div>
+            <div class="col-md-4 form-check mt-4 ms-2">
+                <input class="form-check-input" type="checkbox" @bind="isNonprofit" id="np" />
+                <label class="form-check-label" for="np">Registered nonprofit</label>
+            </div>
+            <div class="col-md-4"><label class="form-label">Exemption type</label>
+                <select class="form-select" @bind="exemptionType">
+                    <option value="">—</option>
+                    <option value="80G">80G (India)</option>
+                    <option value="501c3">501(c)(3) (US)</option>
+                </select>
+            </div>
+            <div class="col-md-4"><label class="form-label">Exemption number</label><input class="form-control" @bind="exemptionNo" /></div>
+            <div class="col-md-6"><label class="form-label">PayPal payout email</label><input class="form-control" @bind="paypalEmail" /></div>
+            <div class="col-md-3"><label class="form-label">Bank name</label><input class="form-control" @bind="bankName" /></div>
+            <div class="col-md-3"><label class="form-label">Account number</label><input class="form-control" @bind="bankAcct" type="password" autocomplete="off" /></div>
+        </div>
+        <button class="btn btn-primary cf-btn-primary mt-3" @onclick="SaveProfile" disabled="@busy">Save profile</button>
+    </div>
+
+    <div class="cf-card mb-4">
+        <h5 class="fw-bold">Submit KYC documents</h5>
+        <p class="small text-muted">Upload government ID (Basic). Add registration + 80G/501(c) for Enhanced.</p>
+        <div class="mb-2">
+            <select class="form-select" @bind="requestedTier">
+                <option value="Basic">Basic</option>
+                <option value="Enhanced">Enhanced</option>
+            </select>
+        </div>
+        <InputFile OnChange="OnFile" multiple />
+        <button class="btn btn-outline-primary mt-3" @onclick="SubmitKyc" disabled="@(busy || files.Count==0)">Submit for review</button>
+    </div>
+</div>
+
+@code {
+    string tier = "Unverified", aml = "", message = "";
+    bool ok, busy, canPayout, isNonprofit;
+    decimal maxGoal = 1000, maxPayout = 0, feeRate = 0.08m;
+    string legalName = "", orgName = "", country = "IN", state = "", address = "";
+    string taxId = "", exemptionType = "", exemptionNo = "", paypalEmail = "", bankName = "", bankAcct = "";
+    string requestedTier = "Basic";
+    List<IBrowserFile> files = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var json = await client.GetStringAsync("/api/kyc/profile");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("limits", out var lim))
+            {
+                tier = lim.GetProperty("tier").GetString() ?? tier;
+                maxGoal = lim.GetProperty("maxGoal").GetDecimal();
+                maxPayout = lim.GetProperty("maxPayout").GetDecimal();
+                canPayout = lim.GetProperty("canPayout").GetBoolean();
+                feeRate = lim.GetProperty("payoutFeeRate").GetDecimal();
+            }
+            if (root.TryGetProperty("profile", out var p) && p.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                legalName = p.GetProperty("legalName").GetString() ?? "";
+                orgName = p.TryGetProperty("organizationName", out var o) ? o.GetString() ?? "" : "";
+                country = p.GetProperty("country").GetString() ?? "IN";
+                isNonprofit = p.GetProperty("isNonprofit").GetBoolean();
+                taxId = p.TryGetProperty("taxId", out var ti) ? ti.GetString() ?? "" : "";
+                exemptionType = p.TryGetProperty("taxExemptionType", out var te) ? te.GetString() ?? "" : "";
+                exemptionNo = p.TryGetProperty("taxExemptionNumber", out var tn) ? tn.GetString() ?? "" : "";
+                paypalEmail = p.TryGetProperty("payPalPayoutEmail", out var pe) ? pe.GetString() ?? "" : "";
+                if (p.TryGetProperty("lastAmlStatus", out var a)) aml = a.ToString();
+            }
+        }
+        catch (Exception ex) { message = ex.Message; ok = false; }
+    }
+
+    void OnFile(InputFileChangeEventArgs e) => files = e.GetMultipleFiles(5).ToList();
+
+    async Task SaveProfile()
+    {
+        busy = true; message = "";
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsJsonAsync("/api/kyc/profile", new
+            {
+                legalName, organizationName = orgName, country, state, address,
+                isNonprofit, taxId, taxExemptionNumber = exemptionNo, taxExemptionType = exemptionType,
+                payPalPayoutEmail = paypalEmail, bankName, bankAccountNumber = bankAcct
+            });
+            var body = await resp.Content.ReadAsStringAsync();
+            ok = resp.IsSuccessStatusCode;
+            message = ok ? "Profile saved (AML screened)." : body;
+            await Load();
+        }
+        catch (Exception ex) { ok = false; message = ex.Message; }
+        finally { busy = false; }
+    }
+
+    async Task SubmitKyc()
+    {
+        busy = true; message = "";
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(requestedTier), "requestedTier");
+            foreach (var f in files)
+            {
+                var stream = f.OpenReadStream(5_000_000);
+                content.Add(new StreamContent(stream), "files", f.Name);
+            }
+            var resp = await client.PostAsync("/api/kyc/submissions", content);
+            var body = await resp.Content.ReadAsStringAsync();
+            ok = resp.IsSuccessStatusCode;
+            message = ok ? "KYC submitted for review." : body;
+            await Load();
+        }
+        catch (Exception ex) { ok = false; message = ex.Message; }
+        finally { busy = false; }
+    }
+}

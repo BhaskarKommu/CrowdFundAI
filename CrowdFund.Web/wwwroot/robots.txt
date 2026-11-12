@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Allow: /campaigns
+Allow: /campaigns/
+Allow: /api/public/
+Disallow: /admin
+Disallow: /Account/
+Disallow: /api/admin/
+Disallow: /api/oauth/
+Disallow: /api/partner/
+Disallow: /api/enterprise/
+
+# Static campaign snapshots for crawlers
+Allow: /campaigns/*/ssr
+Allow: /api/public/campaigns/*/og.png
+
+Sitemap: /sitemap.xml

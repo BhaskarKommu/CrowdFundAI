@@ -1,0 +1,81 @@
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
+
+<div class="cf-app">
+    <nav class="cf-navbar">
+        <div class="page-container d-flex align-items-center justify-content-between gap-2">
+            <a href="/" class="cf-logo flex-shrink-0">
+                <span class="cf-logo-icon">♥</span>
+                CrowdFund AI
+            </a>
+            <div class="cf-nav-links d-none d-lg-flex">
+                <a href="/">Home</a>
+                <a href="/campaigns">Explore</a>
+                <a href="/chat">AI Assistant</a>
+                <a href="/matching-pools">Matching</a>
+                <a href="/premium">Premium</a>
+                <AuthorizeView>
+                    <Authorized>
+                        <a href="/dashboard">Dashboard</a>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+            <div class="cf-nav-actions flex-shrink-0">
+                <AuthorizeView>
+                    <Authorized>
+                        <a href="/dashboard" class="btn btn-sm btn-outline-primary me-1 d-none d-md-inline-block">My workspace</a>
+                        <form action="/Account/Logout" method="post" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">Logout</button>
+                        </form>
+                    </Authorized>
+                    <NotAuthorized>
+                        <a href="/Account/Login" class="btn btn-sm btn-outline-primary cf-nav-login">Login</a>
+                        <a href="/Account/Register" class="btn btn-sm btn-primary cf-btn-primary cf-nav-signup">Sign Up</a>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </div>
+        <div class="page-container d-lg-none cf-nav-links-mobile">
+            <a href="/">Home</a>
+            <a href="/campaigns">Explore</a>
+            <a href="/chat">AI Assistant</a>
+            <AuthorizeView>
+                <Authorized>
+                    <a href="/dashboard">Dashboard</a>
+                    <a href="/donor">Impact</a>
+                    <a href="/creator">Creator</a>
+                    <a href="/admin">Admin</a>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </nav>
+
+    <AuthorizeView>
+        <Authorized>
+            <div class="cf-authed-shell page-container">
+                <aside class="cf-authed-sidebar">
+                    <RoleSideNav />
+                </aside>
+                <div class="cf-authed-content">
+                    <main>@Body</main>
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <main>@Body</main>
+        </NotAuthorized>
+    </AuthorizeView>
+
+    <footer class="lp-footer">
+        <div class="page-container py-4">
+            <div class="d-flex flex-wrap justify-content-between gap-2 small text-muted">
+                <span>© CrowdFund AI — Trust is the product</span>
+                <span>
+                    <a href="/legal/terms">Terms</a> ·
+                    <a href="/legal/privacy">Privacy</a> ·
+                    <a href="/legal/refund">Refunds</a>
+                </span>
+            </div>
+        </div>
+    </footer>
+</div>

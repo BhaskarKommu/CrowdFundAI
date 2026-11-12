@@ -1,0 +1,114 @@
+@page "/campaigns/{CampaignId:guid}/milestones"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Milestones — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Milestone releases</h1>
+    <p class="text-muted mb-4">Proof → verify → release tranche. <strong>Not regulated escrow</strong> — a platform workflow gate before payout eligibility.</p>
+
+    <div class="cf-card mb-3">
+        <div class="row g-2">
+            <div class="col-md-5"><input class="form-control" @bind="title" placeholder="Milestone title" /></div>
+            <div class="col-md-3"><input class="form-control" type="number" @bind="target" placeholder="Target amount" /></div>
+            <div class="col-md-4"><button class="btn btn-primary cf-btn-primary w-100" @onclick="Create">Add milestone</button></div>
+        </div>
+        @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+    </div>
+
+    @foreach (var m in milestones)
+    {
+        <div class="cf-card mb-3">
+            <div class="d-flex justify-content-between">
+                <strong>@m.Title</strong>
+                <span class="badge bg-light text-dark border">@m.Status · released @m.ReleasedAmount.ToString("N0") / @m.TargetAmount.ToString("N0")</span>
+            </div>
+            <p class="small text-muted">@m.Description</p>
+            <button class="btn btn-sm btn-outline-primary" @onclick="() => RequestRelease(m.Id)">Request release (submit for review)</button>
+        </div>
+    }
+
+    <h5 class="fw-bold mt-4">Release requests</h5>
+    @foreach (var r in releases)
+    {
+        <div class="border-bottom py-2 small d-flex justify-content-between">
+            <span>@r.Amount.ToString("N2") · @r.Status</span>
+            <span>
+                @if (r.Status is "UnderReview" or "ProofSubmitted")
+                {
+                    <button class="btn btn-sm btn-success" @onclick='() => Decide(r.Id, "approve")'>Approve release</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick='() => Decide(r.Id, "reject")'>Reject</button>
+                }
+            </span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    string title = "", msg = "";
+    decimal target = 500;
+    List<Ms> milestones = new();
+    List<Rel> releases = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            var json = await client.GetStringAsync($"/api/campaigns/{CampaignId}/milestones");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            milestones = doc.RootElement.GetProperty("milestones").EnumerateArray().Select(m => new Ms
+            {
+                Id = m.GetProperty("id").GetGuid(),
+                Title = m.GetProperty("title").GetString() ?? "",
+                Description = m.TryGetProperty("description", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String ? d.GetString() : "",
+                TargetAmount = m.GetProperty("targetAmount").GetDecimal(),
+                ReleasedAmount = m.TryGetProperty("releasedAmount", out var r) ? r.GetDecimal() : 0,
+                Status = m.GetProperty("status").GetString() ?? ""
+            }).ToList();
+            releases = doc.RootElement.GetProperty("releases").EnumerateArray().Select(r => new Rel
+            {
+                Id = r.GetProperty("id").GetGuid(),
+                Amount = r.GetProperty("amount").GetDecimal(),
+                Status = r.GetProperty("status").GetString() ?? ""
+            }).ToList();
+        }
+        catch { }
+    }
+
+    async Task Create()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync($"/api/campaigns/{CampaignId}/milestones", new { title, targetAmount = target, description = "" });
+        msg = resp.IsSuccessStatusCode ? "Created" : await resp.Content.ReadAsStringAsync();
+        await Load();
+    }
+
+    async Task RequestRelease(Guid id)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsJsonAsync($"/api/milestones/{id}/releases", new { amount = 0 });
+        msg = "Release submitted for review.";
+        await Load();
+    }
+
+    async Task Decide(Guid id, string decision)
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PostAsJsonAsync($"/api/admin/releases/{id}/decision", new { decision });
+        msg = $"Marked {decision}";
+        await Load();
+    }
+
+    class Ms { public Guid Id { get; set; } public string Title { get; set; } = ""; public string? Description { get; set; } public decimal TargetAmount { get; set; } public decimal ReleasedAmount { get; set; } public string Status { get; set; } = ""; }
+    class Rel { public Guid Id { get; set; } public decimal Amount { get; set; } public string Status { get; set; } = ""; }
+}

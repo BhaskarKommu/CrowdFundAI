@@ -1,0 +1,51 @@
+@page "/orgs"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Organizations — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:800px;">
+    <h1 class="fw-bold mb-1">Team / org accounts</h1>
+    <p class="text-muted mb-4">Multiple creators, roles (Owner, Admin, Editor, Finance, Viewer), and approval chains.</p>
+
+    <div class="cf-card mb-3">
+        <div class="input-group">
+            <input class="form-control" @bind="name" placeholder="Organization name" />
+            <button class="btn btn-primary cf-btn-primary" @onclick="Create">Create</button>
+        </div>
+        @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+    </div>
+
+    @foreach (var o in orgs)
+    {
+        <div class="cf-card mb-2 d-flex justify-content-between">
+            <div>
+                <strong>@o.Name</strong>
+                <div class="small text-muted">Home currency @o.HomeCurrency · id @o.Id.ToString()[..8]…</div>
+            </div>
+            <a class="btn btn-sm btn-outline-primary" href="/orgs/@o.Id">Manage</a>
+        </div>
+    }
+</div>
+
+@code {
+    string name = "", msg = "";
+    List<OrgVm> orgs = new();
+    protected override async Task OnInitializedAsync() => await Load();
+    async Task Load()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        try { orgs = await c.GetFromJsonAsync<List<OrgVm>>("/api/orgs/mine") ?? new(); } catch { }
+    }
+    async Task Create()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await c.PostAsJsonAsync("/api/orgs", new { name, homeCurrency = "USD" });
+        msg = resp.IsSuccessStatusCode ? "Created" : await resp.Content.ReadAsStringAsync();
+        await Load();
+    }
+    public class OrgVm { public Guid Id { get; set; } public string Name { get; set; } = ""; public string HomeCurrency { get; set; } = "USD"; }
+}

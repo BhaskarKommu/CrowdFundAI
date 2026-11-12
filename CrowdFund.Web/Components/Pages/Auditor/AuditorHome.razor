@@ -1,0 +1,106 @@
+@page "/auditor"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Auditor,Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Auditor workspace — CrowdFund AI</PageTitle>
+
+<div class="py-2">
+            <div class="cf-dash-hero">
+                <h1>Auditor workspace</h1>
+                <p>Read-only access for NGO and partner reviewers. No payout or publish actions.</p>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-sm-4">
+                    <div class="cf-dash-stat">
+                        <div class="label">Campaigns in view</div>
+                        <div class="value">@rows.Count</div>
+                        <div class="hint">Visible to auditors</div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="cf-dash-stat">
+                        <div class="label">High trust (≥75)</div>
+                        <div class="value">@highTrustCount</div>
+                        <div class="hint">Strong verification</div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="cf-dash-stat">
+                        <div class="label">Low trust (&lt;50)</div>
+                        <div class="value">@lowTrustCount</div>
+                        <div class="hint">Needs attention</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cf-card">
+                <h5 class="fw-bold mb-3">Campaign review list</h5>
+                @if (rows.Count == 0)
+                {
+                    <p class="text-muted small mb-0">No campaigns available. Try refreshing after campaigns enter review.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Campaign</th>
+                                    <th>Status</th>
+                                    <th>Trust</th>
+                                    <th>Transparency</th>
+                                    <th>Raised</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (var c in rows)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@c.Title</td>
+                                    <td><span class="badge bg-secondary">@c.Status</span></td>
+                                    <td>@c.TrustScore</td>
+                                    <td>@c.TransparencyScore</td>
+                                    <td>@c.RaisedAmount.ToString("N0")</td>
+                                    <td><a href="/auditor/campaigns/@c.Id" class="small fw-semibold">Open</a></td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+@code {
+    List<Row> rows = new();
+    int highTrustCount;
+    int lowTrustCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            rows = await client.GetFromJsonAsync<List<Row>>("/api/auditor/campaigns") ?? new();
+            highTrustCount = rows.Count(r => r.TrustScore >= 75);
+            lowTrustCount = rows.Count(r => r.TrustScore > 0 && r.TrustScore < 50);
+        }
+        catch { }
+    }
+
+    public class Row
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Status { get; set; } = "";
+        public int TrustScore { get; set; }
+        public int TransparencyScore { get; set; }
+        public decimal RaisedAmount { get; set; }
+    }
+}

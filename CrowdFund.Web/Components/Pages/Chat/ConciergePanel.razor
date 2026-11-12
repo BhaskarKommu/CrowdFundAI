@@ -1,0 +1,134 @@
+@page "/chat"
+@page "/chat/{CampaignId:guid}"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>AI Donor Assistant — CrowdFund AI</PageTitle>
+
+<div class="cf-hero" style="padding:2rem 0 1rem;">
+    <div class="page-container">
+        <div class="cf-chat-shell text-center">
+            <div class="cf-chat-robot">🤖</div>
+            <h1 class="cf-section-title">AI Donor Assistant</h1>
+            <p class="cf-section-sub mx-auto">Ask anything about your donation — English · हिन्दी · తెలుగు</p>
+        </div>
+    </div>
+</div>
+
+<div class="page-container pb-5">
+    <div class="cf-chat-shell">
+        <div class="cf-chat-window mb-3" @ref="scrollArea">
+            @foreach (var m in messages)
+            {
+                <div class="mb-3 @(m.IsUser ? "text-end" : "text-start")">
+                    <div class="@(m.IsUser ? "cf-chat-bubble-user" : "cf-chat-bubble-bot")">
+                        <div style="white-space:pre-wrap;">@m.Text</div>
+                        @if (m.Citations?.Any() == true)
+                        {
+                            <div class="mt-2">
+                                @foreach (var c in m.Citations.Take(6))
+                                {
+                                    <span class="cf-chip me-1" style="cursor:default;font-size:0.72rem;">@c</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            @if (busy)
+            {
+                <div class="text-muted small">Thinking…</div>
+            }
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap mb-3">
+            <button class="cf-chip" @onclick='() => SendPreset("Where is my money going?")'>Where is my money going?</button>
+            <button class="cf-chip" @onclick='() => SendPreset("What is the current status?")'>Current status</button>
+            <button class="cf-chip" @onclick='() => SendPreset("Show me expense details")'>Show me expense details</button>
+        </div>
+
+        <div class="input-group">
+            <input class="form-control" @bind="input" @bind:event="oninput" placeholder="Ask anything about your donation…"
+                   @onkeydown="OnKey" disabled="@busy" />
+            <button class="btn btn-primary cf-btn-primary" @onclick="Send" disabled="@(busy || string.IsNullOrWhiteSpace(input))">Send</button>
+        </div>
+
+        @if (prepare != null)
+        {
+            <div class="cf-card mt-3 cf-card-static">
+                <strong>Confirm donation</strong>
+                <p class="mb-2 small text-muted">@prepare.ToString()</p>
+                <a class="btn btn-sm btn-primary cf-btn-primary" href="/donate/@(CampaignId)">Continue to PayPal flow</a>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid? CampaignId { get; set; }
+    private string input = "";
+    private bool busy;
+    private List<Msg> messages = new();
+    private object? prepare;
+    private ElementReference scrollArea;
+
+    protected override void OnInitialized()
+    {
+        messages.Add(new Msg(false,
+            "Hi! I can explain where donations go, campaign trust scores, and expenses — with citations. I never move money.",
+            null));
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Send();
+    }
+
+    private async Task SendPreset(string text)
+    {
+        input = text;
+        await Send();
+    }
+
+    private async Task Send()
+    {
+        if (string.IsNullOrWhiteSpace(input) || busy) return;
+        var text = input.Trim();
+        input = "";
+        messages.Add(new Msg(true, text, null));
+        busy = true; prepare = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsJsonAsync("/api/chat", new
+            {
+                message = text,
+                campaignId = CampaignId
+            });
+            var json = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode)
+            {
+                messages.Add(new Msg(false, "Sorry, something went wrong: " + json, null));
+                return;
+            }
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var answer = root.GetProperty("answer").GetString() ?? "";
+            var cites = new List<string>();
+            if (root.TryGetProperty("citations", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.Array)
+                cites = c.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList();
+            if (root.TryGetProperty("prepareDonation", out var pd) && pd.ValueKind is System.Text.Json.JsonValueKind.Object)
+                prepare = pd;
+            messages.Add(new Msg(false, answer, cites));
+        }
+        catch (Exception ex)
+        {
+            messages.Add(new Msg(false, ex.Message, null));
+        }
+        finally { busy = false; }
+    }
+
+    private record Msg(bool IsUser, string Text, List<string>? Citations);
+}

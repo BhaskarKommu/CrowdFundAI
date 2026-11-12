@@ -1,0 +1,146 @@
+@page "/donor"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Donor Dashboard — CrowdFund AI</PageTitle>
+
+<div class="py-2">
+            <div class="cf-dash-hero">
+                <h1>Donor impact</h1>
+                <p>Together we create a bigger impact — track giving, certificates, and preferences.</p>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="cf-dash-stat">
+                        <div class="label">Total Donated</div>
+                        <div class="value">@lifetime.ToString("N0")</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="cf-dash-stat">
+                        <div class="label">Campaigns Supported</div>
+                        <div class="value">@gifts</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="cf-dash-stat">
+                        <div class="label">Impact Score</div>
+                        <div class="value">@(gifts > 0 ? "98%" : "—")</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="cf-card cf-card-static">
+                        <h5 class="fw-bold">Your Impact</h5>
+                        <p class="text-muted small">Category mix of your giving</p>
+                        @foreach (var c in categories)
+                        {
+                            <div class="d-flex justify-content-between border-bottom py-2 small">
+                                <span class="fw-medium">@c.Category</span>
+                                <span class="text-muted">@c.Amount.ToString("N0") · @c.Count gifts</span>
+                            </div>
+                        }
+                        @if (categories.Count == 0) { <p class="text-muted small mb-0">No donations yet. <a href="/campaigns">Explore campaigns</a></p> }
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="cf-card cf-card-static">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5 class="fw-bold mb-0">Certificates</h5>
+                            <button class="btn btn-sm btn-primary cf-btn-primary" @onclick="IssueCert">Issue certificate</button>
+                        </div>
+                        @foreach (var c in certs)
+                        {
+                            <div class="small border-bottom py-2">
+                                <a href="/api/donor/certificates/@c.Id/html" target="_blank" class="fw-medium">@c.Title</a>
+                                <div class="text-muted">@c.LifetimeGiven.ToString("N0") @c.Currency · @c.IssuedAt.ToString("d")</div>
+                            </div>
+                        }
+                        @if (certs.Count == 0) { <p class="text-muted small mb-0">Issue a certificate to generate a printable record.</p> }
+                    </div>
+                </div>
+            </div>
+
+            <div class="cf-card cf-card-static mt-3">
+                <h5 class="fw-bold">Notification preferences</h5>
+                <label class="form-check"><input class="form-check-input" type="checkbox" @bind="optUpdates" /> Campaign updates</label>
+                <label class="form-check"><input class="form-check-input" type="checkbox" @bind="optMsgs" /> Creator messages</label>
+                <label class="form-check"><input class="form-check-input" type="checkbox" @bind="optPush" /> Push notifications</label>
+                <button class="btn btn-sm btn-outline-primary mt-2" @onclick="SavePrefs">Save</button>
+                <button class="btn btn-sm btn-outline-secondary mt-2 ms-1" @onclick="EnablePush">Enable browser push</button>
+                @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+            </div>
+        </div>
+
+@code {
+    decimal lifetime;
+    int gifts;
+    string msg = "";
+    bool optUpdates = true, optMsgs, optPush;
+    List<Cat> categories = new();
+    List<Cert> certs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            var json = await client.GetStringAsync("/api/donor/dashboard");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            lifetime = doc.RootElement.GetProperty("lifetimeGiven").GetDecimal();
+            gifts = doc.RootElement.GetProperty("giftCount").GetInt32();
+            categories = doc.RootElement.GetProperty("categoryMix").EnumerateArray()
+                .Select(c => new Cat(c.GetProperty("category").GetString() ?? "", c.GetProperty("amount").GetDecimal(), c.GetProperty("count").GetInt32())).ToList();
+            certs = doc.RootElement.GetProperty("certificates").EnumerateArray()
+                .Select(c => new Cert(
+                    c.GetProperty("id").GetGuid(),
+                    c.GetProperty("title").GetString() ?? "",
+                    c.GetProperty("lifetimeGiven").GetDecimal(),
+                    c.TryGetProperty("currency", out var cur) ? cur.GetString() ?? "USD" : "USD",
+                    c.GetProperty("issuedAt").GetDateTime()
+                )).ToList();
+            var prefs = await client.GetFromJsonAsync<Prefs>("/api/donor/preferences");
+            if (prefs != null)
+            {
+                optUpdates = prefs.OptInCampaignUpdates;
+                optMsgs = prefs.OptInCreatorMessages;
+                optPush = prefs.OptInPush;
+            }
+        }
+        catch { }
+    }
+
+    async Task IssueCert()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsync("/api/donor/certificates/issue", null);
+        msg = resp.IsSuccessStatusCode ? "Certificate issued." : await resp.Content.ReadAsStringAsync();
+        await OnInitializedAsync();
+    }
+
+    async Task SavePrefs()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        await client.PutAsJsonAsync("/api/donor/preferences", new { optInCampaignUpdates = optUpdates, optInCreatorMessages = optMsgs, optInPush = optPush });
+        msg = "Preferences saved.";
+    }
+
+    async Task EnablePush()
+    {
+        await SavePrefs();
+        msg = "Requesting browser permission (see pwa.js). Production needs VAPID keys.";
+    }
+
+    record Cat(string Category, decimal Amount, int Count);
+    record Cert(Guid Id, string Title, decimal LifetimeGiven, string Currency, DateTime IssuedAt);
+    class Prefs { public bool OptInCampaignUpdates { get; set; } public bool OptInCreatorMessages { get; set; } public bool OptInPush { get; set; } }
+}

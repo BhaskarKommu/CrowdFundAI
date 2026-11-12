@@ -1,0 +1,102 @@
+@page "/admin"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Auditor")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Admin Console — CrowdFund AI</PageTitle>
+
+<div class="py-2">
+    <div class="cf-dash-hero">
+        <h1>Admin console</h1>
+        <p>Risk-sorted review queue · AI advises, humans decide. Ordered by premium priority, then SLA, then risk.</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+
+    <div class="cf-card mb-4">
+        <button class="btn btn-outline-primary btn-sm" @onclick="Load" disabled="@loading">Refresh queue</button>
+    </div>
+
+    @if (items == null)
+    {
+        <p>Loading…</p>
+    }
+    else if (items.Count == 0)
+    {
+        <div class="cf-card text-center py-4 text-muted">No campaigns in review. Submit a campaign for verification.</div>
+    }
+    else
+    {
+        <div class="table-responsive cf-card p-0">
+            <table class="table mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Campaign</th>
+                        <th>Status</th>
+                        <th>Trust</th>
+                        <th>Flags</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var c in items)
+                {
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">@c.Title</div>
+                            <div class="small text-muted">@c.Category · Goal @c.GoalAmount.ToString("N0")</div>
+                        </td>
+                        <td><span class="badge bg-secondary">@c.Status</span></td>
+                        <td>
+                            <span class="cf-trust-score">@c.TrustScore</span>
+                            @if (c.TrustScore >= 75) { <span class="cf-trust-badge ms-1">High</span> }
+                            else if (c.TrustScore > 0 && c.TrustScore < 50) { <span class="badge bg-warning text-dark ms-1">Low</span> }
+                        </td>
+                        <td>@c.OpenFlags</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-primary cf-btn-primary" href="/admin/dossier/@c.Id">Dossier</a>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private List<QueueItem>? items;
+    private bool loading;
+    private string? error;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        loading = true; error = null;
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            items = await client.GetFromJsonAsync<List<QueueItem>>("/api/admin/queue");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; }
+    }
+
+    private class QueueItem
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Category { get; set; } = "";
+        public string Status { get; set; } = "";
+        public int TrustScore { get; set; }
+        public decimal GoalAmount { get; set; }
+        public int OpenFlags { get; set; }
+    }
+}

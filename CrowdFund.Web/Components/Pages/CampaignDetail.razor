@@ -1,0 +1,208 @@
+@page "/campaigns/{Id:guid}"
+@rendermode @(new InteractiveServerRenderMode(prerender: true))
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>@(campaign?.Title ?? "Campaign") — CrowdFund AI</PageTitle>
+
+@if (campaign != null)
+{
+    <HeadContent>
+        <meta name="description" content="@OgDescription" />
+        <link rel="canonical" href="@CanonicalUrl" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="CrowdFund AI" />
+        <meta property="og:title" content="@OgTitle" />
+        <meta property="og:description" content="@OgDescription" />
+        <meta property="og:url" content="@CanonicalUrl" />
+        <meta property="og:image" content="@OgImageUrl" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:alt" content="Verification badge for @OgTitle" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="@OgTitle" />
+        <meta name="twitter:description" content="@OgDescription" />
+        <meta name="twitter:image" content="@OgImageUrl" />
+        @if (!string.IsNullOrEmpty(campaign.LocationCountry))
+        {
+            <meta name="geo.region" content="@(string.IsNullOrEmpty(campaign.LocationRegion) ? campaign.LocationCountry : $"{campaign.LocationCountry}-{campaign.LocationRegion}")" />
+            <meta name="geo.placename" content="@(campaign.LocationCity ?? campaign.LocationLabel)" />
+            <meta name="ICBM" content="@($"{campaign.Latitude},{campaign.Longitude}")" />
+        }
+        @if (campaign.Latitude.HasValue && campaign.Longitude.HasValue)
+        {
+            <meta property="place:location:latitude" content="@campaign.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)" />
+            <meta property="place:location:longitude" content="@campaign.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)" />
+        }
+        <script type="application/ld+json">@((MarkupString)JsonLd)</script>
+    </HeadContent>
+}
+
+@if (campaign == null)
+{
+    <div class="page-container py-5"><p>Loading…</p></div>
+}
+else
+{
+    <div class="page-container py-5">
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="cf-card cf-card-static mb-4">
+                    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+                        <span class="cf-chip" style="cursor:default;">@campaign.Category</span>
+                        @if (campaign.TrustScore >= 70)
+                        {
+                            <span class="cf-trust-badge">✓ Verified Campaign</span>
+                        }
+                    </div>
+                    <h1 class="fw-bold mb-2">@campaign.Title</h1>
+                    @if (!string.IsNullOrEmpty(campaign.LocationLabel))
+                    {
+                        <p class="text-muted mb-3"><span class="me-1">📍</span>@campaign.LocationLabel</p>
+                    }
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="fw-bold fs-4 text-primary">@(campaign.GoalAmount > 0 ? (int)Math.Min(100, Math.Round(campaign.RaisedAmount / campaign.GoalAmount * 100)) : 0)%</span>
+                            <span class="text-muted">@campaign.RaisedAmount.ToString("N0") / @campaign.GoalAmount.ToString("N0") @campaign.Currency</span>
+                        </div>
+                        <div class="cf-progress mb-3">
+                            <div class="cf-progress-bar" style="width:@(campaign.GoalAmount > 0 ? (int)Math.Min(100, Math.Round(campaign.RaisedAmount / campaign.GoalAmount * 100)) : 0)%"></div>
+                        </div>
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="fw-bold fs-5">@campaign.DonorCount</div>
+                                <div class="small text-muted">Donors</div>
+                            </div>
+                            <div class="col-4">
+                                <div class="fw-bold fs-5">—</div>
+                                <div class="small text-muted">Days Left</div>
+                            </div>
+                            <div class="col-4">
+                                <div class="fw-bold fs-5">@((campaign.GoalAmount - campaign.RaisedAmount).ToString("N0"))</div>
+                                <div class="small text-muted">Needed</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 mb-4">
+                        <a href="/donate/@campaign.Id" class="btn btn-primary cf-btn-primary">Donate Now</a>
+                        <a href="/campaigns/@campaign.Id/follow-money" class="btn btn-outline-primary">Share Campaign</a>
+                    </div>
+                    <hr class="my-4" />
+                    <h5 class="fw-bold">About This Campaign</h5>
+                    <p class="text-muted mt-2" style="white-space:pre-wrap;">@campaign.Story</p>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="cf-card sticky-top cf-card-static" style="top:80px;">
+                    <div class="cf-trust-score mb-3">
+                        <div class="score">@campaign.TrustScore%</div>
+                        <div class="label">Trust Score · AI Verified</div>
+                    </div>
+                    <ul class="list-unstyled small mb-3">
+                        <li class="mb-2 d-flex align-items-center gap-2"><span class="text-success">✓</span> Authentic Documents</li>
+                        <li class="mb-2 d-flex align-items-center gap-2"><span class="text-success">✓</span> Valid Campaign</li>
+                        <li class="mb-2 d-flex align-items-center gap-2"><span class="text-success">✓</span> No Suspicious Activity</li>
+                    </ul>
+                    <a href="/donate/@campaign.Id" class="btn btn-primary cf-btn-primary w-100 mb-2">Donate Now</a>
+                    <a href="/campaigns/@campaign.Id/follow-money" class="btn btn-outline-primary w-100 mb-2">Follow My Money</a>
+                    <a href="/chat/@campaign.Id" class="btn btn-outline-primary w-100 mb-2">Ask AI Assistant</a>
+                    <a href="/campaigns/@campaign.Id/transparency" class="btn btn-outline-primary w-100 mb-2">Expense Transparency</a>
+                    <a href="/campaigns/@campaign.Id/impact-reports" class="btn btn-outline-primary w-100 mb-2">Impact Tracker</a>
+                    <div class="dropdown mt-2">
+                        <button class="btn btn-outline-secondary w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">More actions</button>
+                        <ul class="dropdown-menu w-100">
+                            <li><a class="dropdown-item" href="/campaigns/@campaign.Id/flags">Flags &amp; replies</a></li>
+                            <li><a class="dropdown-item" href="/campaigns/@campaign.Id/proofs">Multimodal proofs</a></li>
+                            <li><a class="dropdown-item" href="/campaigns/@campaign.Id/milestones">Milestones</a></li>
+                            <li><a class="dropdown-item" href="/campaigns/@campaign.Id/matching-pools">Matching pools</a></li>
+                            <li><a class="dropdown-item" href="/campaigns/@campaign.Id/expenses/upload">Upload Expense</a></li>
+                            <li><hr class="dropdown-divider" /></li>
+                            <li><button class="dropdown-item" @onclick="ApplyPremium">Priority review</button></li>
+                            <li><button class="dropdown-item" @onclick="StartMonthly">Donate monthly</button></li>
+                        </ul>
+                    </div>
+                    <p class="small text-muted text-center mt-3 mb-0">Server-side PayPal · Ledger verified</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private Campaign? campaign;
+
+    private string CanonicalUrl => $"{Nav.BaseUri.TrimEnd('/')}/campaigns/{Id}";
+    private string OgTitle => campaign == null ? "Campaign — CrowdFund AI" : $"{campaign.Title} — CrowdFund AI";
+    private string OgDescription
+    {
+        get
+        {
+            if (campaign == null) return "Transparent crowdfunding with AI trust signals.";
+            var story = campaign.Story?.Trim() ?? "";
+            if (story.Length > 160) story = story[..157] + "…";
+            if (string.IsNullOrWhiteSpace(story))
+                story = $"{campaign.Category} campaign · Trust {campaign.TrustScore} · Raised {campaign.RaisedAmount:N0} {campaign.Currency}";
+            return story;
+        }
+    }
+    private string OgImageUrl => $"{Nav.BaseUri.TrimEnd('/')}/api/public/campaigns/{Id}/og.png";
+    private string JsonLd
+    {
+        get
+        {
+            if (campaign == null) return "{}";
+            var title = System.Text.Json.JsonSerializer.Serialize(campaign.Title);
+            var desc = System.Text.Json.JsonSerializer.Serialize(OgDescription);
+            var url = System.Text.Json.JsonSerializer.Serialize(CanonicalUrl);
+            var place = "";
+            if (!string.IsNullOrEmpty(campaign.LocationCity) || campaign.Latitude.HasValue)
+            {
+                var placeName = System.Text.Json.JsonSerializer.Serialize(campaign.LocationLabel ?? campaign.LocationCity ?? "");
+                var addr = "";
+                if (!string.IsNullOrEmpty(campaign.LocationCountry))
+                {
+                    addr = ",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":" +
+                           System.Text.Json.JsonSerializer.Serialize(campaign.LocationCity ?? "") +
+                           ",\"addressRegion\":" + System.Text.Json.JsonSerializer.Serialize(campaign.LocationRegion ?? "") +
+                           ",\"addressCountry\":" + System.Text.Json.JsonSerializer.Serialize(campaign.LocationCountry) + "}";
+                }
+                var geo = "";
+                if (campaign.Latitude.HasValue && campaign.Longitude.HasValue)
+                {
+                    geo = ",\"geo\":{\"@type\":\"GeoCoordinates\",\"latitude\":" +
+                          campaign.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                          ",\"longitude\":" +
+                          campaign.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
+                }
+                place = ",\"location\":{\"@type\":\"Place\",\"name\":" + placeName + addr + geo + "}";
+            }
+            return "{\"@context\":\"https://schema.org\",\"@type\":\"DonateAction\",\"name\":" + title +
+                   ",\"description\":" + desc + ",\"url\":" + url +
+                   ",\"recipient\":{\"@type\":\"Organization\",\"name\":" + title + place + "}}";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        campaign = await Db.Campaigns.AsNoTracking().FirstOrDefaultAsync(c => c.Id == Id);
+    }
+
+    async Task ApplyPremium()
+    {
+        try
+        {
+            var http = HttpFactory.CreateClient();
+            http.BaseAddress = new Uri(Nav.BaseUri);
+            await http.PostAsync($"/api/campaigns/{Id}/premium-review", null);
+        }
+        catch { }
+    }
+
+    void StartMonthly() => Nav.NavigateTo($"/donate/{Id}?mode=monthly");
+}

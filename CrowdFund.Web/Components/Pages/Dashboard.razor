@@ -1,0 +1,182 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Dashboard — CrowdFund AI</PageTitle>
+
+<div class="py-2">
+            <div class="cf-dash-hero">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                    <div>
+                        <h1>Welcome back@(string.IsNullOrEmpty(displayName) ? "" : $", {displayName}")</h1>
+                        <p>Your command center for trust, impact, and campaigns.</p>
+                    </div>
+                    @if (roles.Count > 0)
+                    {
+                        <div class="d-flex flex-wrap gap-1">
+                            @foreach (var r in roles)
+                            {
+                                <span class="cf-role-badge">@r</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Total donated</div>
+                        <div class="value">@totalDonated.ToString("N0")</div>
+                        <div class="hint">USD equivalent</div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Campaigns supported</div>
+                        <div class="value">@campaignsSupported</div>
+                        <div class="hint">As donor</div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Campaigns created</div>
+                        <div class="value">@myCampaigns</div>
+                        <div class="hint">As creator</div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-3">
+                    <div class="cf-dash-stat">
+                        <div class="label">Session</div>
+                        <div class="value" style="font-size:1.1rem;">Active</div>
+                        <div class="hint">Signed in securely</div>
+                    </div>
+                </div>
+            </div>
+
+            <h5 class="fw-bold mb-3">Quick access</h5>
+            <div class="cf-quick-grid mb-4">
+                <a class="cf-quick-tile" href="/campaigns"><span class="tile-icon">🔍</span>Explore</a>
+                <a class="cf-quick-tile" href="/chat"><span class="tile-icon">💬</span>AI Assistant</a>
+                <AuthorizeView Roles="Donor,Admin">
+                    <Authorized>
+                        <a class="cf-quick-tile" href="/donor"><span class="tile-icon">♥</span>My impact</a>
+                    </Authorized>
+                </AuthorizeView>
+                <AuthorizeView Roles="Creator,Admin">
+                    <Authorized>
+                        <a class="cf-quick-tile" href="/creator"><span class="tile-icon">🚀</span>Creator hub</a>
+                        <a class="cf-quick-tile" href="/campaigns/create"><span class="tile-icon">＋</span>New campaign</a>
+                        <a class="cf-quick-tile" href="/kyc"><span class="tile-icon">🪪</span>KYC</a>
+                        <a class="cf-quick-tile" href="/payouts"><span class="tile-icon">🏦</span>Payouts</a>
+                    </Authorized>
+                </AuthorizeView>
+                <AuthorizeView Roles="Auditor,Admin">
+                    <Authorized>
+                        <a class="cf-quick-tile" href="/auditor"><span class="tile-icon">🔎</span>Auditor</a>
+                    </Authorized>
+                </AuthorizeView>
+                <AuthorizeView Roles="Admin">
+                    <Authorized>
+                        <a class="cf-quick-tile" href="/admin"><span class="tile-icon">⚙</span>Admin queue</a>
+                        <a class="cf-quick-tile" href="/admin/customers"><span class="tile-icon">👥</span>Customers</a>
+                        <a class="cf-quick-tile" href="/admin/transactions"><span class="tile-icon">💳</span>Transactions</a>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="cf-card h-100">
+                        <h5 class="fw-bold">Recent donations</h5>
+                        @if (!donations.Any())
+                        {
+                            <p class="text-muted small mb-0">No donations yet. <a href="/campaigns">Explore campaigns</a></p>
+                        }
+                        else
+                        {
+                            <ul class="list-unstyled mb-0">
+                                @foreach (var d in donations.Take(8))
+                                {
+                                    <li class="border-bottom py-2 d-flex justify-content-between align-items-center gap-2">
+                                        <span class="small">@d.Amount.ToString("N2") @d.Currency · @d.CapturedAt?.ToString("yyyy-MM-dd")</span>
+                                        <a class="small fw-semibold" href="/donations/@d.Id/follow-money">Follow money</a>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="cf-card h-100">
+                        <h5 class="fw-bold">Role shortcuts</h5>
+                        <p class="text-muted small">Open the workspace that matches how you use CrowdFund AI.</p>
+                        <div class="d-grid gap-2">
+                            <AuthorizeView Roles="Donor,Admin">
+                                <Authorized>
+                                    <a href="/donor" class="btn btn-outline-primary">Donor dashboard</a>
+                                </Authorized>
+                            </AuthorizeView>
+                            <AuthorizeView Roles="Creator,Admin">
+                                <Authorized>
+                                    <a href="/creator" class="btn btn-outline-primary">Creator hub</a>
+                                </Authorized>
+                            </AuthorizeView>
+                            <AuthorizeView Roles="Auditor,Admin">
+                                <Authorized>
+                                    <a href="/auditor" class="btn btn-outline-primary">Auditor desk</a>
+                                </Authorized>
+                            </AuthorizeView>
+                            <AuthorizeView Roles="Admin">
+                                <Authorized>
+                                    <a href="/admin" class="btn btn-primary cf-btn-primary">Admin console</a>
+                                </Authorized>
+                            </AuthorizeView>
+                        </div>
+                    </div>
+                </div>
+            </div>
+</div>
+
+@code {
+    private string? displayName;
+    private string? userId;
+    private decimal totalDonated;
+    private int campaignsSupported;
+    private int myCampaigns;
+    private List<Donation> donations = new();
+    private List<string> roles = new();
+    private string? PrimaryRole;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        displayName = state.User.Identity?.Name?.Split('@').FirstOrDefault();
+        roles = state.User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).Distinct().OrderBy(x => x).ToList();
+
+        PrimaryRole = roles.Contains("Admin") ? "Admin"
+            : roles.Contains("Creator") ? "Creator"
+            : roles.Contains("Auditor") ? "Auditor"
+            : roles.Contains("Donor") ? "Donor"
+            : null;
+
+        if (string.IsNullOrEmpty(userId)) return;
+
+        donations = await Db.Donations.AsNoTracking()
+            .Where(d => d.DonorId == userId && d.Status == DonationStatus.Captured)
+            .OrderByDescending(d => d.CapturedAt)
+            .ToListAsync();
+        totalDonated = donations.Sum(d => d.Amount);
+        campaignsSupported = donations.Select(d => d.CampaignId).Distinct().Count();
+        myCampaigns = await Db.Campaigns.CountAsync(c => c.CreatorId == userId);
+    }
+}

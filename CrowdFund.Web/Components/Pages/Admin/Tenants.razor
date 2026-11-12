@@ -1,0 +1,60 @@
+@page "/admin/tenants"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Tenants / white-label — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Tenants & white-label</h1>
+    <p class="text-muted mb-4">Hard data boundaries per NGO. Brandable trust layer (colors, logo, badge label).</p>
+
+    <div class="cf-card mb-3">
+        <div class="row g-2">
+            <div class="col-md-4"><input class="form-control" @bind="name" placeholder="Name" /></div>
+            <div class="col-md-3"><input class="form-control" @bind="slug" placeholder="slug" /></div>
+            <div class="col-md-3"><input class="form-control" @bind="color" placeholder="#6C5CE7" /></div>
+            <div class="col-md-2"><button class="btn btn-primary w-100" @onclick="Create">Create</button></div>
+        </div>
+        @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+    </div>
+
+    @foreach (var t in tenants)
+    {
+        <div class="cf-card mb-2 d-flex justify-content-between align-items-center">
+            <div>
+                <strong style="color:@t.PrimaryColor">@t.Name</strong>
+                <div class="small text-muted">/@t.Slug · badge: @t.TrustBadgeLabel</div>
+            </div>
+            <code class="small">GET /api/tenants/@t.Slug</code>
+        </div>
+    }
+</div>
+
+@code {
+    string name = "", slug = "", color = "#6C5CE7", msg = "";
+    List<TenantVm> tenants = new();
+    protected override async Task OnInitializedAsync() => await Load();
+    async Task Load()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        try { tenants = await c.GetFromJsonAsync<List<TenantVm>>("/api/admin/tenants") ?? new(); } catch { }
+    }
+    async Task Create()
+    {
+        var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await c.PostAsJsonAsync("/api/admin/tenants", new { name, slug, primaryColor = color });
+        msg = resp.IsSuccessStatusCode ? "Created" : await resp.Content.ReadAsStringAsync();
+        await Load();
+    }
+    public class TenantVm
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Slug { get; set; } = "";
+        public string PrimaryColor { get; set; } = "#6C5CE7";
+        public string? TrustBadgeLabel { get; set; }
+    }
+}

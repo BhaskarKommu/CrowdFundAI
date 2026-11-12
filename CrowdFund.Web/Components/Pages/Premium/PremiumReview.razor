@@ -1,0 +1,284 @@
+@page "/premium"
+@page "/premium/return"
+@page "/premium/cancel"
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using CrowdFund.Core.Entities
+@using CrowdFund.Core.Services
+@using CrowdFund.Infrastructure.Data
+@using CrowdFund.Infrastructure.PayPal
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Options
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@inject AppDbContext Db
+@inject PremiumVerificationService Premium
+@inject PayPalClient PayPal
+@inject IOptions<PayPalOptions> PayPalOpts
+
+<PageTitle>Premium verification — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:880px;">
+    <h1 class="fw-bold mb-1">Premium verification</h1>
+    <p class="text-muted mb-4">
+        Faster human review for your campaigns. <strong>Does not change AI trust scores or fraud rules</strong> — only queue priority and SLA targets.
+    </p>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+    @if (!string.IsNullOrEmpty(msg))
+    {
+        <div class="alert alert-info">@msg</div>
+    }
+
+    @if (me != null)
+    {
+        <div class="cf-card mb-4 d-flex flex-wrap align-items-center gap-2">
+            <span class="badge @(me.Active ? "bg-success" : "bg-secondary")">@(me.Active ? "Active" : "Standard")</span>
+            <strong>@me.Plan</strong>
+            @if (me.Active)
+            {
+                <span class="text-muted small">Target review ≤ @me.SlaHours hours</span>
+            }
+            <span class="small text-muted ms-auto">PayPal: @(PayPal.IsSimulated ? "simulate mode" : $"{PayPalOpts.Value.Mode}")</span>
+        </div>
+    }
+
+    <div class="row g-3 mb-4">
+        @foreach (var p in plans)
+        {
+            <div class="col-md-6">
+                <div class="cf-card h-100">
+                    <h5 class="fw-bold">@p.Plan</h5>
+                    <div class="cf-stat-value" style="font-size:1.75rem;">$@p.PriceUsd.ToString("N0")</div>
+                    <p class="small text-muted">Target SLA: @p.SlaHours hours</p>
+                    <p class="small">@p.Description</p>
+                    <button class="btn btn-primary cf-btn-primary w-100 mb-2"
+                            disabled="@busy"
+                            @onclick="() => BuyWithPayPal(p.Plan)">
+                        @(busy ? "Starting PayPal…" : "Subscribe with PayPal")
+                    </button>
+                    <button class="btn btn-outline-secondary w-100 btn-sm"
+                            disabled="@busy"
+                            @onclick="() => BuySimulate(p.Plan)">
+                        Simulate (no payment)
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+
+    <p class="small text-muted mb-0">
+        Checkout uses the configured PayPal REST app (sandbox/live). Simulate activates premium without charging for demos.
+    </p>
+</div>
+
+@code {
+    List<PlanVm> plans = new()
+    {
+        new("Priority", PremiumSla.PriceUsd(PremiumPlan.Priority), PremiumSla.TargetReviewHours(PremiumPlan.Priority),
+            "Priority review queue — target response within 12 hours during business coverage."),
+        new("PriorityPlus", PremiumSla.PriceUsd(PremiumPlan.PriorityPlus), PremiumSla.TargetReviewHours(PremiumPlan.PriorityPlus),
+            "Highest priority — target response within 4 hours. Does not change trust scoring rules.")
+    };
+
+    MeVm? me;
+    string msg = "";
+    string error = "";
+    bool busy;
+    string? userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        userId = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        await RefreshMe();
+
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (uri.AbsolutePath.Contains("/premium/return", StringComparison.OrdinalIgnoreCase)
+            && (query.TryGetValue("token", out var token) || query.TryGetValue("orderId", out token)))
+        {
+            var orderId = token.ToString();
+            if (!string.IsNullOrWhiteSpace(orderId))
+                await ConfirmOrder(orderId);
+        }
+        else if (uri.AbsolutePath.Contains("/premium/cancel", StringComparison.OrdinalIgnoreCase))
+        {
+            msg = "PayPal checkout was cancelled. You can try again anytime.";
+        }
+    }
+
+    async Task RefreshMe()
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            me = new MeVm("None", 48, false);
+            return;
+        }
+        var subs = await Db.PremiumVerificationSubscriptions.AsNoTracking()
+            .Where(s => s.CreatorId == userId)
+            .ToListAsync();
+        var plan = Premium.EffectivePlan(subs);
+        me = new MeVm(plan.ToString(), PremiumSla.TargetReviewHours(plan), plan != PremiumPlan.None);
+    }
+
+    async Task BuyWithPayPal(string planName)
+    {
+        busy = true; error = ""; msg = "";
+        try
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                error = "You must be signed in.";
+                return;
+            }
+            if (!Enum.TryParse<PremiumPlan>(planName, true, out var plan) || plan == PremiumPlan.None)
+            {
+                error = "Invalid plan.";
+                return;
+            }
+
+            var amount = PremiumSla.PriceUsd(plan);
+            var pendingId = Guid.NewGuid();
+            var order = await PayPal.CreateOrderAsync(
+                pendingId,
+                amount,
+                "USD",
+                $"CrowdFund AI Premium {plan} (30 days)");
+
+            var pending = Premium.Activate(userId, plan, 30, promotional: false, paymentRef: order.OrderId, amountOverride: amount);
+            pending.Status = PremiumSubscriptionStatus.PendingPayment;
+            pending.PaymentReference = order.OrderId;
+            Db.PremiumVerificationSubscriptions.Add(pending);
+            await Db.SaveChangesAsync();
+
+            if (PayPal.IsSimulated || string.IsNullOrWhiteSpace(order.ApproveUrl))
+            {
+                // No external redirect — capture/confirm immediately
+                await ConfirmOrder(order.OrderId);
+                return;
+            }
+
+            msg = "Redirecting to PayPal checkout…";
+            Nav.NavigateTo(order.ApproveUrl, forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            error = "PayPal order failed: " + ex.Message +
+                    " — Check PayPal ClientId/ClientSecret and Mode. Set PayPal:Simulate=true for offline demo.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    async Task ConfirmOrder(string orderId)
+    {
+        busy = true; error = "";
+        try
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                error = "You must be signed in to confirm payment.";
+                return;
+            }
+
+            var sub = await Db.PremiumVerificationSubscriptions
+                .Where(s => s.CreatorId == userId && s.PaymentReference == orderId)
+                .OrderByDescending(s => s.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (sub == null)
+            {
+                error = "No pending subscription found for this PayPal order.";
+                return;
+            }
+
+            var capture = await PayPal.CaptureOrderAsync(orderId);
+            if (!capture.IsCompleted && !PayPal.IsSimulated)
+            {
+                error = $"Payment not completed (status: {capture.Status}).";
+                return;
+            }
+
+            sub.Status = PremiumSubscriptionStatus.Active;
+            sub.PaymentReference = capture.CaptureId ?? orderId;
+            sub.StartsAt = DateTime.UtcNow;
+            if (sub.ExpiresAt < sub.StartsAt)
+                sub.ExpiresAt = sub.StartsAt.AddDays(30);
+
+            var open = await Db.Campaigns
+                .Where(c => c.CreatorId == userId &&
+                            (c.Status == CampaignStatus.UnderReview || c.Status == CampaignStatus.NeedsReview || c.Status == CampaignStatus.Draft))
+                .ToListAsync();
+            foreach (var c in open)
+                Premium.ApplyToCampaign(c, sub.Plan);
+
+            await Db.SaveChangesAsync();
+            msg = $"Premium {sub.Plan} is active until {sub.ExpiresAt:yyyy-MM-dd} UTC.";
+            await RefreshMe();
+
+            if (Nav.Uri.Contains('?') || Nav.Uri.Contains("/premium/return"))
+                Nav.NavigateTo("/premium", forceLoad: false);
+        }
+        catch (Exception ex)
+        {
+            error = "Confirm failed: " + ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    async Task BuySimulate(string planName)
+    {
+        busy = true; error = ""; msg = "";
+        try
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                error = "You must be signed in.";
+                return;
+            }
+            if (!Enum.TryParse<PremiumPlan>(planName, true, out var plan) || plan == PremiumPlan.None)
+            {
+                error = "Invalid plan.";
+                return;
+            }
+
+            var sub = Premium.Activate(userId, plan, 30, promotional: false);
+            Db.PremiumVerificationSubscriptions.Add(sub);
+
+            var open = await Db.Campaigns
+                .Where(c => c.CreatorId == userId &&
+                            (c.Status == CampaignStatus.UnderReview || c.Status == CampaignStatus.NeedsReview || c.Status == CampaignStatus.Draft))
+                .ToListAsync();
+            foreach (var c in open)
+                Premium.ApplyToCampaign(c, plan);
+
+            await Db.SaveChangesAsync();
+            msg = $"Simulated {plan} activated (no charge) until {sub.ExpiresAt:yyyy-MM-dd} UTC.";
+            await RefreshMe();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    record PlanVm(string Plan, decimal PriceUsd, int SlaHours, string Description);
+    record MeVm(string Plan, int SlaHours, bool Active);
+}

@@ -1,0 +1,70 @@
+@page "/admin/audit"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Audit log — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="fw-bold mb-0">Immutable audit log</h1>
+        <a class="btn btn-outline-primary btn-sm" href="/api/admin/audit/export" target="_blank">Export CSV</a>
+    </div>
+    <p class="text-muted">Append-only record of sensitive actions (approvals, payouts, KYC). Includes actor, IP, and timestamp for disputes.</p>
+
+    <div class="mb-3">
+        <input class="form-control" style="max-width:320px" placeholder="Filter by action…" @bind="filter" @bind:event="oninput" />
+        <button class="btn btn-sm btn-primary mt-2" @onclick="Load">Refresh</button>
+    </div>
+
+    <div class="cf-card p-0 overflow-auto">
+        <table class="table table-sm mb-0">
+            <thead><tr><th>When</th><th>Action</th><th>Result</th><th>Actor</th><th>Entity</th><th>IP</th></tr></thead>
+            <tbody>
+            @foreach (var e in rows)
+            {
+                <tr>
+                    <td class="small text-nowrap">@e.CreatedAt.ToString("u")</td>
+                    <td><code>@e.Action</code></td>
+                    <td>@e.Result</td>
+                    <td class="small">@(e.ActorEmail ?? e.ActorUserId)</td>
+                    <td class="small">@e.EntityType @e.EntityId</td>
+                    <td class="small">@e.IpAddress</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    string filter = "";
+    List<Row> rows = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var url = "/api/admin/audit?take=200";
+        if (!string.IsNullOrWhiteSpace(filter)) url += "&action=" + Uri.EscapeDataString(filter);
+        try { rows = await client.GetFromJsonAsync<List<Row>>(url) ?? new(); }
+        catch { rows = new(); }
+    }
+
+    public class Row
+    {
+        public long Id { get; set; }
+        public string Action { get; set; } = "";
+        public string Result { get; set; } = "";
+        public string? ActorUserId { get; set; }
+        public string? ActorEmail { get; set; }
+        public string? EntityType { get; set; }
+        public string? EntityId { get; set; }
+        public string? IpAddress { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+}

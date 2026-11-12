@@ -1,0 +1,111 @@
+@page "/campaigns/{CampaignId:guid}/transparency"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Expense Transparency — CrowdFund AI</PageTitle>
+
+<div class="cf-hero" style="padding:2rem 0 1rem;">
+    <div class="page-container">
+        <h1 class="cf-section-title">Expense Transparency</h1>
+        <p class="cf-section-sub">See how your donation is utilized</p>
+    </div>
+</div>
+
+<div class="page-container pb-5" style="max-width:900px;">
+    @if (!string.IsNullOrEmpty(error)) { <div class="alert alert-danger">@error</div> }
+
+    <div class="cf-metric-pills">
+        <div class="cf-metric-pill">
+            <div class="amt">@currentScore%</div>
+            <div class="lbl">Transparency Score</div>
+        </div>
+        <div class="cf-metric-pill">
+            <div class="amt">Live</div>
+            <div class="lbl">Verification</div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-5">
+            <div class="cf-trust-score h-100 d-flex flex-column justify-content-center">
+                <div class="score">@currentScore%</div>
+                <div class="label">Current Transparency Score</div>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="cf-card cf-card-static h-100">
+                <h6 class="fw-bold mb-2">Public verification badge</h6>
+                <img src="/api/public/campaigns/@CampaignId/badge.svg" alt="Verification badge" class="img-fluid mb-2" style="max-width:100%;border-radius:12px;" />
+                <div class="small text-muted">
+                    <div>SVG: <code>/api/public/campaigns/@CampaignId/badge.svg</code></div>
+                    <div>JSON: <code>/api/public/campaigns/@CampaignId/badge.json</code></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="cf-card cf-card-static">
+        <h5 class="fw-bold mb-3">What changed</h5>
+        @if (changes.Count == 0)
+        {
+            <p class="text-muted small mb-0">No history yet — Watchdog will record snapshots as the score moves.</p>
+        }
+        else
+        {
+            <table class="cf-table">
+                <thead>
+                    <tr><th>Change</th><th>Delta</th><th>When</th></tr>
+                </thead>
+                <tbody>
+                @foreach (var c in changes)
+                {
+                    <tr>
+                        <td>
+                            <strong>@c.PreviousScore → @c.Score</strong>
+                            <div class="small text-muted">@c.ChangeSummary</div>
+                        </td>
+                        <td><span class="@(c.Delta >= 0 ? "text-success" : "text-danger")">@(c.Delta >= 0 ? "+" : "")@c.Delta</span></td>
+                        <td class="small text-muted">@c.CreatedAt</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    string error = "";
+    int currentScore;
+    List<Change> changes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var json = await client.GetStringAsync($"/api/public/campaigns/{CampaignId}/transparency/history");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("current", out var cur) && cur.ValueKind == System.Text.Json.JsonValueKind.Object)
+                currentScore = cur.GetProperty("score").GetInt32();
+            foreach (var h in root.GetProperty("whatChanged").EnumerateArray())
+            {
+                changes.Add(new Change(
+                    h.GetProperty("previousScore").GetInt32(),
+                    h.GetProperty("score").GetInt32(),
+                    h.GetProperty("delta").GetInt32(),
+                    h.TryGetProperty("changeSummary", out var s) ? s.GetString() ?? "" : "",
+                    h.GetProperty("createdAt").GetDateTime().ToString("u")
+                ));
+            }
+            if (currentScore == 0 && changes.Count > 0) currentScore = changes[0].Score;
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    record Change(int PreviousScore, int Score, int Delta, string ChangeSummary, string CreatedAt);
+}

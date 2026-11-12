@@ -1,0 +1,93 @@
+@page "/invoices"
+@page "/admin/invoices"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Invoices and payment links</PageTitle>
+
+<div class="page-container py-4">
+    <h1 class="fw-bold mb-3">Invoices and payment links</h1>
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="cf-card">
+                <h5 class="fw-bold">Create invoice</h5>
+                <input class="form-control form-control-sm mb-2" @bind="invEmail" placeholder="Recipient email" />
+                <input class="form-control form-control-sm mb-2" @bind="invName" placeholder="Recipient name" />
+                <input type="number" class="form-control form-control-sm mb-2" @bind="invAmount" />
+                <input class="form-control form-control-sm mb-2" @bind="invItem" placeholder="Item name" />
+                <button class="btn btn-sm btn-primary" @onclick="CreateInv">Create</button>
+                <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="LoadInv">Refresh</button>
+            </div>
+            <div class="cf-card mt-3">
+                <h6 class="fw-bold">Invoices</h6>
+                @foreach (var i in invoices)
+                {
+                    <div class="border-bottom py-2 small">
+                        <strong>@i.InvoiceNumber</strong> · @i.Status · @i.Amount.ToString("N2") @i.Currency → @i.RecipientEmail
+                        <div>
+                            <button class="btn btn-link btn-sm p-0 me-2" @onclick="() => Send(i.Id)">Send</button>
+                            <button class="btn btn-link btn-sm p-0 me-2" @onclick="() => Remind(i.Id)">Remind</button>
+                            <button class="btn btn-link btn-sm p-0 me-2" @onclick="() => RecordPay(i.Id)">Record payment</button>
+                            <button class="btn btn-link btn-sm p-0 text-danger" @onclick="() => CancelInv(i.Id)">Cancel</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="cf-card">
+                <h5 class="fw-bold">Create payment link</h5>
+                <input class="form-control form-control-sm mb-2" @bind="linkTitle" placeholder="Title" />
+                <input type="number" class="form-control form-control-sm mb-2" @bind="linkAmount" />
+                <textarea class="form-control form-control-sm mb-2" @bind="linkDesc" rows="2"></textarea>
+                <button class="btn btn-sm btn-primary" @onclick="CreateLink">Create shareable link</button>
+                <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="LoadLinks">Refresh</button>
+            </div>
+            <div class="cf-card mt-3">
+                <h6 class="fw-bold">Payment links</h6>
+                @foreach (var l in links)
+                {
+                    <div class="border-bottom py-2 small">
+                        <strong>@l.Title</strong> · @l.Amount.ToString("N2") @l.Currency · @l.Status
+                        <div><a href="@l.ShareUrl" target="_blank">@l.ShareUrl</a></div>
+                        <div class="text-muted">Uses @l.UseCount · collected @l.TotalCollected.ToString("N2")</div>
+                        <button class="btn btn-link btn-sm p-0" @onclick="() => LoadTx(l.Id)">Transactions</button>
+                        <button class="btn btn-link btn-sm p-0 text-danger ms-2" @onclick="() => CancelLink(l.Id)">Cancel</button>
+                    </div>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(txJson)) { <div class="cf-card mt-3"><pre class="small mb-0" style="white-space:pre-wrap;">@txJson</pre></div> }
+        </div>
+    </div>
+    @if (!string.IsNullOrEmpty(message)) { <div class="alert alert-info mt-3 small">@message</div> }
+</div>
+
+@code {
+    string? invEmail, invName, invItem = "Contribution", linkTitle, linkDesc, message, txJson;
+    decimal invAmount = 25, linkAmount = 25;
+    List<InvVm> invoices = new();
+    List<LinkVm> links = new();
+    protected override async Task OnInitializedAsync() { await LoadInv(); await LoadLinks(); }
+    async Task CreateInv() {
+        var resp = await Client().PostAsJsonAsync("/api/invoices", new { recipientEmail = invEmail, recipientName = invName, amount = invAmount, itemName = invItem });
+        message = await resp.Content.ReadAsStringAsync(); await LoadInv();
+    }
+    async Task LoadInv() { try { invoices = await Client().GetFromJsonAsync<List<InvVm>>("/api/invoices") ?? new(); } catch { invoices = new(); } }
+    async Task Send(Guid id) { message = await (await Client().PostAsync($"/api/invoices/{id}/send", null)).Content.ReadAsStringAsync(); await LoadInv(); }
+    async Task Remind(Guid id) { message = await (await Client().PostAsJsonAsync($"/api/invoices/{id}/remind", new { })).Content.ReadAsStringAsync(); await LoadInv(); }
+    async Task RecordPay(Guid id) { message = await (await Client().PostAsJsonAsync($"/api/invoices/{id}/record-payment", new { amount = 0 })).Content.ReadAsStringAsync(); await LoadInv(); }
+    async Task CancelInv(Guid id) { message = await (await Client().PostAsJsonAsync($"/api/invoices/{id}/cancel", new { reason = "Cancelled" })).Content.ReadAsStringAsync(); await LoadInv(); }
+    async Task CreateLink() {
+        var resp = await Client().PostAsJsonAsync("/api/payment-links", new { title = linkTitle, amount = linkAmount, description = linkDesc });
+        message = await resp.Content.ReadAsStringAsync(); await LoadLinks();
+    }
+    async Task LoadLinks() { try { links = await Client().GetFromJsonAsync<List<LinkVm>>("/api/payment-links") ?? new(); } catch { links = new(); } }
+    async Task LoadTx(Guid id) { txJson = await Client().GetStringAsync($"/api/payment-links/{id}/transactions"); }
+    async Task CancelLink(Guid id) { await Client().PostAsync($"/api/payment-links/{id}/cancel", null); await LoadLinks(); }
+    HttpClient Client() { var c = HttpFactory.CreateClient(); c.BaseAddress = new Uri(Nav.BaseUri); return c; }
+    public class InvVm { public Guid Id { get; set; } public string InvoiceNumber { get; set; } = ""; public string Status { get; set; } = ""; public decimal Amount { get; set; } public string Currency { get; set; } = "USD"; public string RecipientEmail { get; set; } = ""; }
+    public class LinkVm { public Guid Id { get; set; } public string Title { get; set; } = ""; public decimal Amount { get; set; } public string Currency { get; set; } = "USD"; public string Status { get; set; } = ""; public string? ShareUrl { get; set; } public int UseCount { get; set; } public decimal TotalCollected { get; set; } }
+}

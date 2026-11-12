@@ -1,0 +1,131 @@
+@page "/enterprise"
+@page "/enterprise/{TenantId:guid}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Enterprise Transparency — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5">
+    <h1 class="fw-bold mb-1">Enterprise Transparency-as-a-Service</h1>
+    <p class="text-muted mb-4">Portfolio trust, scheduled reports, bulk verification, and compliance packs for large NGOs.</p>
+
+    <div class="cf-card mb-3">
+        <label class="form-label">Tenant ID</label>
+        <div class="input-group">
+            <input class="form-control" @bind="tenantInput" placeholder="Guid of NGO tenant" />
+            <button class="btn btn-primary" @onclick="Load">Load dashboard</button>
+        </div>
+        @if (!string.IsNullOrEmpty(msg)) { <div class="alert alert-info mt-2 mb-0">@msg</div> }
+    </div>
+
+    @if (dash != null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-md-3"><div class="cf-card text-center"><div class="cf-stat-value">@dash.Portfolio.CampaignCount</div><div class="cf-stat-label">Campaigns</div></div></div>
+            <div class="col-md-3"><div class="cf-card text-center"><div class="cf-stat-value">@dash.Portfolio.TotalRaised.ToString("N0")</div><div class="cf-stat-label">Raised</div></div></div>
+            <div class="col-md-3"><div class="cf-card text-center"><div class="cf-stat-value">@dash.Portfolio.AvgTrust</div><div class="cf-stat-label">Avg trust</div></div></div>
+            <div class="col-md-3"><div class="cf-card text-center"><div class="cf-stat-value">@dash.Portfolio.OpenHighFlags</div><div class="cf-stat-label">Open high flags</div></div></div>
+        </div>
+
+        <div class="d-flex gap-2 flex-wrap mb-3">
+            <button class="btn btn-primary cf-btn-primary" @onclick="GenReport">Generate portfolio report</button>
+            <button class="btn btn-outline-primary" @onclick="Compliance">Compliance pack</button>
+            <button class="btn btn-outline-primary" @onclick="Bulk">Bulk verify (queue)</button>
+        </div>
+
+        <div class="cf-card">
+            <h5 class="fw-bold">Campaigns</h5>
+            <table class="table table-sm">
+                <thead><tr><th>Title</th><th>Status</th><th>Trust</th><th>Raised</th></tr></thead>
+                <tbody>
+                @foreach (var c in dash.Campaigns)
+                {
+                    <tr>
+                        <td><a href="/campaigns/@c.Id">@c.Title</a></td>
+                        <td>@c.Status</td>
+                        <td>@c.TrustScore</td>
+                        <td>@c.RaisedAmount.ToString("N0")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid TenantId { get; set; }
+    string tenantInput = "", msg = "";
+    DashVm? dash;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (TenantId != Guid.Empty)
+        {
+            tenantInput = TenantId.ToString();
+            await Load();
+        }
+    }
+
+    async Task Load()
+    {
+        if (!Guid.TryParse(tenantInput, out var tid)) { msg = "Invalid tenant id"; return; }
+        TenantId = tid;
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        try
+        {
+            dash = await client.GetFromJsonAsync<DashVm>($"/api/enterprise/{tid}/dashboard");
+            msg = dash == null ? "No data" : "Loaded";
+        }
+        catch (Exception ex) { msg = ex.Message; dash = null; }
+    }
+
+    async Task GenReport()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsync($"/api/enterprise/{TenantId}/reports/generate", null);
+        msg = await resp.Content.ReadAsStringAsync();
+    }
+
+    async Task Compliance()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync($"/api/enterprise/{TenantId}/compliance-pack", new { });
+        msg = await resp.Content.ReadAsStringAsync();
+    }
+
+    async Task Bulk()
+    {
+        var client = HttpFactory.CreateClient();
+        client.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await client.PostAsJsonAsync($"/api/enterprise/{TenantId}/bulk-verify", new { });
+        msg = await resp.Content.ReadAsStringAsync();
+    }
+
+    public class DashVm
+    {
+        public PortfolioVm Portfolio { get; set; } = new();
+        public List<CampVm> Campaigns { get; set; } = new();
+    }
+    public class PortfolioVm
+    {
+        public int CampaignCount { get; set; }
+        public decimal TotalRaised { get; set; }
+        public double AvgTrust { get; set; }
+        public int OpenHighFlags { get; set; }
+    }
+    public class CampVm
+    {
+        public Guid Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Status { get; set; } = "";
+        public int TrustScore { get; set; }
+        public decimal RaisedAmount { get; set; }
+    }
+}

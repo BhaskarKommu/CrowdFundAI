@@ -1,0 +1,68 @@
+@page "/receipt/{DonationId:guid}"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+
+<PageTitle>Donation Receipt — CrowdFund AI</PageTitle>
+
+@if (donation == null)
+{
+    <div class="page-container py-5"><p>@(notFound ? "Receipt not found." : "Loading…")</p></div>
+}
+else
+{
+    <div class="page-container py-5" style="max-width:560px;">
+        <div class="cf-card text-center">
+            <div class="mb-3" style="font-size:3rem;">✅</div>
+            <h2 class="fw-bold">Thank you for your donation!</h2>
+            <p class="text-muted">Your support has been securely recorded.</p>
+
+            <div class="text-start mt-4 p-3 rounded" style="background:#F8F7FF;">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Campaign</span>
+                    <span class="fw-semibold">@donation.Campaign?.Title</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Amount</span>
+                    <span class="fw-bold">@donation.Amount.ToString("N2") @donation.Currency</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Captured at</span>
+                    <span>@donation.CapturedAt?.ToString("u")</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">PayPal Capture ID</span>
+                    <span class="small font-monospace">@donation.PayPalCaptureId</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="text-muted">Donation ID</span>
+                    <span class="small font-monospace">@donation.Id</span>
+                </div>
+            </div>
+
+            <p class="small text-muted mt-4 mb-3">
+                A tamper-evident ledger entry was written at capture time.
+                Amounts are computed only by server-side C# code.
+            </p>
+            <a href="/campaigns/@donation.CampaignId" class="btn btn-outline-primary me-2">Back to Campaign</a>
+            <a href="/campaigns" class="btn btn-primary cf-btn-primary">Explore more</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid DonationId { get; set; }
+    private Donation? donation;
+    private bool notFound;
+
+    protected override async Task OnInitializedAsync()
+    {
+        donation = await Db.Donations
+            .AsNoTracking()
+            .Include(d => d.Campaign)
+            .FirstOrDefaultAsync(d => d.Id == DonationId && d.Status == DonationStatus.Captured);
+        notFound = donation == null;
+    }
+}

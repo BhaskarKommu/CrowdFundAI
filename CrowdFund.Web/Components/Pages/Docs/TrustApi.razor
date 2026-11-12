@@ -1,0 +1,57 @@
+@page "/docs/trust-api"
+@rendermode InteractiveServer
+
+<PageTitle>White-label Trust API — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">White-label Trust API</h1>
+    <p class="text-muted mb-4">
+        Let other fundraising platforms plug into CrowdFund AI’s verification layer under their own brand.
+        Trust scores remain <strong>advisory</strong> — not a guarantee of legitimacy.
+    </p>
+
+    <div class="cf-card mb-3">
+        <h5>1. Auth</h5>
+        <pre class="small mb-0">POST /api/oauth/token
+{ "client_id": "...", "client_secret": "...", "grant_type": "client_credentials" }
+
+→ Authorization: Bearer {access_token}</pre>
+        <p class="small text-muted mt-2 mb-0">Admin creates partners at <code>POST /api/admin/partners</code> (scopes include <code>trust:write</code>). Bind <code>TenantId</code> for hard isolation + branding.</p>
+    </div>
+
+    <div class="cf-card mb-3">
+        <h5>2. Register a campaign (external ref)</h5>
+        <pre class="small mb-0">POST /api/trust/v1/campaigns
+{
+  "title": "Relief fund",
+  "story": "...",
+  "category": "Disaster Relief",
+  "goalAmount": 10000,
+  "externalRef": "their-platform-campaign-99",
+  "platformName": "OtherFund"
+}</pre>
+    </div>
+
+    <div class="cf-card mb-3">
+        <h5>3. Upload documents &amp; evaluate</h5>
+        <pre class="small mb-0">POST /api/trust/v1/campaigns/{id}/documents  (multipart: file, docType)
+POST /api/trust/v1/campaigns/{id}/evaluate
+
+→ trustScore, band, findings, flags, badge URLs</pre>
+    </div>
+
+    <div class="cf-card mb-3">
+        <h5>4. Embed badge (branded by tenant)</h5>
+        <pre class="small mb-0">GET /api/trust/v1/campaigns/{id}/badge.svg
+GET /api/trust/v1/campaigns/{id}/badge.json</pre>
+        <p class="small text-muted mb-0">Colors and label come from the partner’s Tenant white-label settings.</p>
+    </div>
+
+    <div class="cf-card mb-3">
+        <h5>5. Webhooks</h5>
+        <pre class="small mb-0">POST /api/trust/v1/webhooks
+{ "url": "https://their.app/hooks/trust", "eventType": "trust.updated" }</pre>
+    </div>
+
+    <p class="small text-muted">Discovery: <code>GET /api/trust/v1/health</code> · <code>GET /api/trust/v1/openapi-lite</code></p>
+</div>

@@ -1,0 +1,37 @@
+@using Microsoft.AspNetCore.Components.Authorization
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <div class="page-container py-5 text-center">
+                            <h2 class="fw-bold">Sign in required</h2>
+                            <p class="text-muted">You need an account to open this page.</p>
+                            <a class="btn btn-primary cf-btn-primary" href="/Account/Login">Go to Login</a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="page-container py-5 text-center">
+                            <h2 class="fw-bold">Access denied</h2>
+                            <p class="text-muted">Your role cannot open this page. Admins can open every area after re-login.</p>
+                            <a class="btn btn-outline-primary" href="/dashboard">Back to Dashboard</a>
+                        </div>
+                    }
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <div class="page-container py-5 text-center">
+                    <h2 class="fw-bold">Page not found</h2>
+                    <a href="/">Home</a>
+                </div>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

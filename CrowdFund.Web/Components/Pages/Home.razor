@@ -1,0 +1,208 @@
+@page "/"
+@rendermode InteractiveServer
+
+<PageTitle>CrowdFund AI — Transparent AI-powered fundraising</PageTitle>
+@inject NavigationManager Nav
+<HeadContent>
+    <meta name="description" content="Transparent AI-powered crowdfunding. Verified campaigns, ledger-backed spending, and trust scores." />
+    <link rel="canonical" href="@(Nav.BaseUri.TrimEnd('/'))/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CrowdFund AI" />
+    <meta property="og:title" content="CrowdFund AI — Transparent AI-powered fundraising" />
+    <meta property="og:description" content="Transparent AI-powered crowdfunding. Verified campaigns, ledger-backed spending, and trust scores." />
+    <meta property="og:url" content="@(Nav.BaseUri.TrimEnd('/'))/" />
+    <meta property="og:image" content="@(Nav.BaseUri.TrimEnd('/'))/favicon.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CrowdFund AI — Transparent AI-powered fundraising" />
+    <meta name="twitter:description" content="Transparent AI-powered crowdfunding with AI trust signals." />
+</HeadContent>
+
+<section class="lp-hero">
+    <div class="page-container">
+        <div class="row align-items-center g-4">
+            <div class="col-lg-6">
+                <h1 class="lp-title">
+                    <span class="lp-title-brand">CrowdFund AI</span>
+                    <span class="lp-title-sub">Transparent AI-powered<br />fundraising</span>
+                </h1>
+                <p class="lp-lead">
+                    Connect with verified campaigns and see exactly how your contributions are used.
+                </p>
+                <div class="d-flex gap-3 mt-4 flex-wrap">
+                    <a href="/campaigns" class="btn btn-primary cf-btn-primary btn-lg lp-btn-primary">Explore Campaigns →</a>
+                    <a href="/campaigns/create" class="btn btn-outline-primary btn-lg lp-btn-outline">Create a Campaign</a>
+                </div>
+            </div>
+            <div class="col-lg-6 text-center">
+                <div class="lp-hero-art" aria-hidden="true">
+                    <div class="lp-orb lp-orb-a"></div>
+                    <div class="lp-orb lp-orb-b"></div>
+                    <div class="lp-hands">
+                        <svg viewBox="0 0 280 220" width="280" height="220" role="img">
+                            <defs>
+                                <linearGradient id="lpHeartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#FF6B9D"/>
+                                    <stop offset="100%" stop-color="#E84393"/>
+                                </linearGradient>
+                                <linearGradient id="lpHandGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                                    <stop offset="0%" stop-color="#FFE0C2"/>
+                                    <stop offset="100%" stop-color="#F5C39A"/>
+                                </linearGradient>
+                            </defs>
+                            <!-- left hand -->
+                            <path fill="url(#lpHandGrad)" d="M40 160 C35 120 55 95 85 100 C95 70 120 65 135 90 C140 75 160 75 168 95 C175 80 195 85 198 110 C210 105 230 120 225 150 C220 185 160 200 100 195 C70 192 45 180 40 160 Z"/>
+                            <!-- right hand -->
+                            <path fill="url(#lpHandGrad)" d="M240 160 C245 120 225 95 195 100 C185 70 160 65 145 90 C140 75 120 75 112 95 C105 80 85 85 82 110 C70 105 50 120 55 150 C60 185 120 200 180 195 C210 192 235 180 240 160 Z"/>
+                            <!-- heart -->
+                            <path fill="url(#lpHeartGrad)" d="M140 175 C140 175 95 145 95 115 C95 100 105 90 120 90 C130 90 137 96 140 105 C143 96 150 90 160 90 C175 90 185 100 185 115 C185 145 140 175 140 175 Z"/>
+                            <path fill="#fff" opacity="0.35" d="M125 110 C125 110 118 105 118 100 C118 96 122 94 126 96 C128 97 130 100 130 104 Z"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feature pills -->
+        <div class="lp-features">
+            <div class="lp-feature">
+                <div class="lp-feature-icon lp-fi-purple">🛡️</div>
+                <span>AI Verification</span>
+            </div>
+            <div class="lp-feature">
+                <div class="lp-feature-icon lp-fi-blue">💳</div>
+                <span>Smart Donations</span>
+            </div>
+            <div class="lp-feature">
+                <div class="lp-feature-icon lp-fi-green">📊</div>
+                <span>Expense Transparency</span>
+            </div>
+            <div class="lp-feature">
+                <div class="lp-feature-icon lp-fi-orange">🤖</div>
+                <span>AI Assistant</span>
+            </div>
+            <div class="lp-feature">
+                <div class="lp-feature-icon lp-fi-pink">📈</div>
+                <span>Impact Tracker</span>
+            </div>
+            <div class="lp-feature">
+                <div class="lp-feature-icon lp-fi-red">🔒</div>
+                <span>Fraud Detection</span>
+            </div>
+        </div>
+
+        <!-- Problem / Solution -->
+        <div class="lp-ps-row">
+            <div class="lp-ps-card lp-ps-problem">
+                <div class="lp-ps-badge danger">!</div>
+                <div>
+                    <h5>The Problem</h5>
+                    <p>Donors often struggle to understand where their contributions are going.</p>
+                </div>
+            </div>
+            <div class="lp-ps-card lp-ps-solution">
+                <div class="lp-ps-badge success">✓</div>
+                <div>
+                    <h5>Our Solution</h5>
+                    <p>AI-powered transparency for trustworthy fundraising.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Signature feature -->
+        <div class="lp-signature">
+            <div class="lp-signature-copy">
+                <h3>Signature Feature: Follow My Money</h3>
+                <p>Track exactly how your donation is used with detailed expense breakdowns and receipts.</p>
+                <a href="/campaigns" class="btn btn-primary cf-btn-primary">Learn More →</a>
+            </div>
+            <div class="lp-signature-mock" aria-hidden="true">
+                <div class="lp-mock-window">
+                    <div class="lp-mock-titlebar">
+                        <span class="dot d-r"></span><span class="dot d-y"></span><span class="dot d-g"></span>
+                        <span class="lp-mock-title">Follow My Money</span>
+                    </div>
+                    <div class="lp-mock-body">
+                        <div class="lp-mock-row">
+                            <span class="lp-mock-label">Medical supplies</span>
+                            <div class="lp-mock-bar"><i style="width:72%"></i></div>
+                            <span class="lp-mock-amt">$1,240</span>
+                        </div>
+                        <div class="lp-mock-row">
+                            <span class="lp-mock-label">Hospital fees</span>
+                            <div class="lp-mock-bar"><i style="width:55%"></i></div>
+                            <span class="lp-mock-amt">$980</span>
+                        </div>
+                        <div class="lp-mock-row">
+                            <span class="lp-mock-label">Travel &amp; lodging</span>
+                            <div class="lp-mock-bar"><i style="width:28%"></i></div>
+                            <span class="lp-mock-amt">$420</span>
+                        </div>
+                        <div class="lp-mock-receipt">
+                            <span>🧾</span> Receipt verified · SHA-256 matched
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trust stats -->
+        <div class="lp-trust">
+            <p class="lp-trust-heading">Trusted by Supporters Worldwide</p>
+            <div class="lp-stats">
+                <div class="lp-stat">
+                    <div class="lp-stat-icon">👥</div>
+                    <div class="lp-stat-value">10K+</div>
+                    <div class="lp-stat-label">Trusted Donors</div>
+                </div>
+                <div class="lp-stat">
+                    <div class="lp-stat-icon">💙</div>
+                    <div class="lp-stat-value">500+</div>
+                    <div class="lp-stat-label">Verified Campaigns</div>
+                </div>
+                <div class="lp-stat">
+                    <div class="lp-stat-icon">✅</div>
+                    <div class="lp-stat-value">100%</div>
+                    <div class="lp-stat-label">Transparent Tracking</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom CTA -->
+        <div class="lp-cta-band">
+            <h2>Start Supporting with Confidence</h2>
+            <a href="/campaigns" class="btn btn-primary cf-btn-primary btn-lg">Explore Campaigns →</a>
+        </div>
+    </div>
+</section>
+
+<section class="lp-about cf-section" id="about">
+    <div class="page-container">
+        <div class="text-center mb-5">
+            <h2 class="cf-section-title">Why CrowdFund AI?</h2>
+            <p class="cf-section-sub">Trust is the product. Every campaign is verified, every expense is tracked.</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="cf-card h-100 text-center">
+                    <div style="font-size:2.5rem;">🛡️</div>
+                    <h5 class="fw-bold mt-2">AI Verification</h5>
+                    <p class="text-muted small mb-0">Multi-agent trust assessment, document forensics, and anomaly detection before a campaign goes live.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="cf-card h-100 text-center">
+                    <div style="font-size:2.5rem;">📋</div>
+                    <h5 class="fw-bold mt-2">Expense Transparency</h5>
+                    <p class="text-muted small mb-0">See receipts, categories, and milestones. Know exactly how your donation is spent.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="cf-card h-100 text-center">
+                    <div style="font-size:2.5rem;">🤖</div>
+                    <h5 class="fw-bold mt-2">AI Donor Assistant</h5>
+                    <p class="text-muted small mb-0">Ask in plain language: “Where is my money going?” Get clear, ledger-backed answers.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>

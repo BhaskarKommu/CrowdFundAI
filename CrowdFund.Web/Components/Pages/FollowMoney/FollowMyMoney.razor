@@ -1,0 +1,229 @@
+@page "/campaigns/{CampaignId:guid}/follow-money"
+@page "/donations/{DonationId:guid}/follow-money"
+@rendermode InteractiveServer
+@using CrowdFund.Core.Entities
+@using CrowdFund.Infrastructure.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Impact Tracker — CrowdFund AI</PageTitle>
+
+<div class="cf-hero" style="padding:2rem 0 1rem;">
+    <div class="page-container">
+        <h1 class="cf-section-title">Impact Tracker</h1>
+        <p class="cf-section-sub">Track progress and see real impact · @method</p>
+    </div>
+</div>
+
+<div class="page-container pb-5">
+    <p class="small text-muted mb-3">Fee transparency: platform &amp; processor estimates appear on each donation; net campaign share is shown on receipts.</p>
+
+    @if (loading)
+    {
+        <p>Loading money flow…</p>
+    }
+    else if (campaign == null)
+    {
+        <p>Campaign not found.</p>
+    }
+    else
+    {
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="cf-card text-center">
+                    <div class="cf-stat-value">@totalRaised.ToString("N0")</div>
+                    <div class="cf-stat-label">Raised (@campaign.Currency)</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="cf-card text-center">
+                    <div class="cf-stat-value">@totalSpent.ToString("N0")</div>
+                    <div class="cf-stat-label">Spent</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="cf-card text-center">
+                    <div class="cf-stat-value">@remaining.ToString("N0")</div>
+                    <div class="cf-stat-label">Remaining</div>
+                </div>
+            </div>
+        </div>
+
+        @if (donation != null)
+        {
+            <div class="cf-card mb-4">
+                <h5 class="fw-bold">Your donation: @donation.Amount.ToString("N2") @donation.Currency</h5>
+                <a class="btn btn-sm btn-outline-primary" href="/api/donations/@donation.Id/impact-receipt" target="_blank">Download Impact Receipt</a>
+            </div>
+        }
+
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="cf-card h-100">
+                    <h5 class="fw-bold mb-3">Category breakdown</h5>
+                    @if (categories.Count == 0)
+                    {
+                        <p class="text-muted small">No verified expenses yet. Upload expenses from the creator dashboard.</p>
+                    }
+                    else
+                    {
+                        <table class="table table-sm mb-0">
+                            <thead><tr><th>Category</th><th class="text-end">Amount</th><th class="text-end">%</th>@if (donation != null){<th class="text-end">Your share</th>}</tr></thead>
+                            <tbody>
+                            @foreach (var c in categories)
+                            {
+                                <tr>
+                                    <td><span class="cf-chip" style="cursor:default;">@c.Category</span></td>
+                                    <td class="text-end">@c.Amount.ToString("N2")</td>
+                                    <td class="text-end">@c.Percent%</td>
+                                    @if (donation != null) { <td class="text-end fw-semibold">@c.DonorShare.ToString("N2")</td> }
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="cf-card h-100">
+                    <h5 class="fw-bold mb-3">Money flow (Sankey-style)</h5>
+                    <div class="sankey-simple">
+                        @foreach (var link in sankeyLinks.Take(12))
+                        {
+                            var width = Math.Max(4, (int)(Math.Min(100, (double)link.Value / Math.Max(1, (double)totalRaised) * 100)));
+                            <div class="mb-2">
+                                <div class="small d-flex justify-content-between">
+                                    <span>@link.Source → @link.Target</span>
+                                    <span class="fw-semibold">@link.Value.ToString("N2")</span>
+                                </div>
+                                <div class="cf-progress"><div class="cf-progress-bar" style="width:@width%"></div></div>
+                            </div>
+                        }
+                        @if (sankeyLinks.Count == 0)
+                        {
+                            <p class="text-muted small mb-0">Flow appears after expenses are recorded.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cf-card mt-4">
+            <h5 class="fw-bold mb-3">Expenses & receipts</h5>
+            @if (expenses.Count == 0)
+            {
+                <p class="text-muted">No expenses yet.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Date</th><th>Vendor</th><th>Category</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
+                        <tbody>
+                        @foreach (var e in expenses)
+                        {
+                            <tr>
+                                <td class="small">@e.Date.ToString("yyyy-MM-dd")</td>
+                                <td>@e.Vendor</td>
+                                <td><span class="cf-chip" style="cursor:default;">@e.Category</span></td>
+                                <td class="text-end">@e.Amount.ToString("N2")</td>
+                                <td><span class="badge @(e.Status.Contains("Verified") ? "bg-success" : "bg-secondary")">@e.Status</span></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            <a href="/campaigns/@CampaignId/expenses/upload" class="btn btn-primary cf-btn-primary btn-sm">Upload expense</a>
+            <a href="/chat/@CampaignId" class="btn btn-outline-primary btn-sm ms-2">Ask the Concierge</a>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid CampaignId { get; set; }
+    [Parameter] public Guid? DonationId { get; set; }
+
+    private Campaign? campaign;
+    private Donation? donation;
+    private bool loading = true;
+    private decimal totalRaised, totalSpent, remaining;
+    private string method = "";
+    private List<Cat> categories = new();
+    private List<Exp> expenses = new();
+    private List<Link> sankeyLinks = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Resolve campaign from donation route if needed
+        if (DonationId.HasValue && DonationId != Guid.Empty)
+        {
+            donation = await Db.Donations.AsNoTracking().FirstOrDefaultAsync(d => d.Id == DonationId);
+            if (donation != null) CampaignId = donation.CampaignId;
+        }
+
+        campaign = await Db.Campaigns.AsNoTracking().FirstOrDefaultAsync(c => c.Id == CampaignId);
+        if (campaign == null) { loading = false; return; }
+
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
+            string url = donation != null
+                ? $"/api/donations/{donation.Id}/allocation"
+                : $"/api/campaigns/{CampaignId}/money-flow";
+            var json = await http.GetStringAsync(url);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            method = root.TryGetProperty("method", out var m) ? m.GetString() ?? "" : "";
+
+            System.Text.Json.JsonElement bd = root;
+            if (root.TryGetProperty("breakdown", out var b)) bd = b;
+
+            totalRaised = bd.TryGetProperty("totalRaised", out var tr) ? tr.GetDecimal() : campaign.RaisedAmount;
+            totalSpent = bd.TryGetProperty("totalSpent", out var ts) ? ts.GetDecimal() : 0;
+            remaining = bd.TryGetProperty("remaining", out var rm) ? rm.GetDecimal() : 0;
+
+            if (bd.TryGetProperty("categories", out var cats))
+            {
+                foreach (var c in cats.EnumerateArray())
+                {
+                    categories.Add(new Cat(
+                        c.GetProperty("category").GetString() ?? "",
+                        c.GetProperty("amount").GetDecimal(),
+                        c.TryGetProperty("percent", out var p) ? p.GetDecimal() : 0,
+                        c.TryGetProperty("donorShare", out var ds) ? ds.GetDecimal() : 0));
+                }
+            }
+            if (bd.TryGetProperty("expenses", out var exps))
+            {
+                foreach (var e in exps.EnumerateArray())
+                {
+                    expenses.Add(new Exp(
+                        e.GetProperty("date").GetDateTime(),
+                        e.GetProperty("vendor").GetString() ?? "",
+                        e.GetProperty("category").GetString() ?? "",
+                        e.GetProperty("amount").GetDecimal(),
+                        e.GetProperty("status").GetString() ?? ""));
+                }
+            }
+            var sankey = bd.TryGetProperty("sankey", out var sk) ? sk : root.TryGetProperty("sankey", out var sk2) ? sk2 : default;
+            if (sankey.ValueKind == System.Text.Json.JsonValueKind.Object && sankey.TryGetProperty("links", out var links))
+            {
+                foreach (var l in links.EnumerateArray())
+                {
+                    sankeyLinks.Add(new Link(
+                        l.GetProperty("source").GetString() ?? "",
+                        l.GetProperty("target").GetString() ?? "",
+                        l.GetProperty("value").GetDecimal()));
+                }
+            }
+        }
+        catch { /* show empty state */ }
+        loading = false;
+    }
+
+    private record Cat(string Category, decimal Amount, decimal Percent, decimal DonorShare);
+    private record Exp(DateTime Date, string Vendor, string Category, decimal Amount, string Status);
+    private record Link(string Source, string Target, decimal Value);
+}

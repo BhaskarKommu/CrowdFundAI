@@ -1,0 +1,131 @@
+@page "/expenses/{ExpenseId:guid}/evidence"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Evidence pack — CrowdFund AI</PageTitle>
+
+<div class="page-container py-5" style="max-width:900px;">
+    <h1 class="fw-bold mb-1">Evidence pack</h1>
+    <p class="text-muted mb-4">Original files, hashes, AI extraction, and human review status.</p>
+
+    @if (error != null) { <div class="alert alert-danger">@error</div> }
+    else if (!loaded) { <p class="text-muted">Loading…</p> }
+    else
+    {
+        <div class="cf-card mb-3">
+            <h5 class="fw-bold">@Vendor — @Amount</h5>
+            <p class="mb-1">@Description</p>
+            <p class="small text-muted mb-0">
+                Status: <strong>@Status</strong> · Category: @Category · Confidence: @Confidence
+                @if (!string.IsNullOrEmpty(ReviewedBy))
+                {
+                    <span> · Reviewed by @ReviewedBy @ReviewedAt</span>
+                }
+            </p>
+        </div>
+
+        <div class="cf-card mb-3">
+            <h5 class="fw-bold">Files & integrity</h5>
+            @if (evidences.Count == 0) { <p class="text-muted small">No files attached.</p> }
+            @foreach (var e in evidences)
+            {
+                <div class="border-bottom py-2">
+                    <div class="d-flex justify-content-between">
+                        <strong>@e.FileName</strong>
+                        <a class="btn btn-sm btn-outline-primary" href="@e.DownloadUrl" target="_blank">Download</a>
+                    </div>
+                    <div class="small text-muted font-monospace">SHA-256: @e.Sha256</div>
+                </div>
+            }
+        </div>
+
+        <div class="cf-card mb-3">
+            <h5 class="fw-bold">AI extraction</h5>
+            <pre class="small mb-0" style="white-space:pre-wrap;">@(string.IsNullOrEmpty(ExtractionJson) ? "—" : ExtractionJson)</pre>
+        </div>
+
+        <div class="cf-card mb-3">
+            <h5 class="fw-bold">Donor receipt challenge</h5>
+            <p class="small text-muted">Does this receipt match the claimed expense?</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                <button class="btn btn-sm btn-success" @onclick='() => Challenge("Matches")' disabled="@busy">Matches</button>
+                <button class="btn btn-sm btn-danger" @onclick='() => Challenge("DoesNotMatch")' disabled="@busy">Does not match</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick='() => Challenge("Unsure")' disabled="@busy">Unsure</button>
+            </div>
+            <textarea class="form-control form-control-sm mb-2" rows="2" @bind="comment" placeholder="Optional comment"></textarea>
+            @if (!string.IsNullOrEmpty(challengeMsg))
+            {
+                <div class="alert alert-info py-2">@challengeMsg</div>
+            }
+            <p class="small text-muted mb-0">Community: @MatchCount match · @MismatchCount mismatch (mismatches open a review flag)</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid ExpenseId { get; set; }
+    string? error, challengeMsg, Vendor, Description, Status, Category, Confidence, ReviewedBy, ReviewedAt, ExtractionJson, Amount;
+    string comment = "";
+    bool busy;
+    bool loaded;
+    int MatchCount, MismatchCount;
+    List<Ev> evidences = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var json = await client.GetStringAsync($"/api/expenses/{ExpenseId}/evidence-pack");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var exp = root.GetProperty("expense");
+            Vendor = exp.GetProperty("vendor").GetString();
+            Description = exp.GetProperty("description").GetString();
+            Amount = exp.GetProperty("amount").GetDecimal().ToString("N2") + " " + (exp.TryGetProperty("currency", out var c) ? c.GetString() : "USD");
+            Status = exp.GetProperty("status").GetString();
+            Category = exp.GetProperty("category").GetString();
+            Confidence = exp.GetProperty("extractionConfidence").GetDouble().ToString("P0");
+            ExtractionJson = exp.TryGetProperty("extractionJson", out var ej) && ej.ValueKind == System.Text.Json.JsonValueKind.String ? ej.GetString() : null;
+            ReviewedBy = exp.TryGetProperty("reviewedBy", out var rb) && rb.ValueKind == System.Text.Json.JsonValueKind.String ? rb.GetString() : null;
+            ReviewedAt = exp.TryGetProperty("reviewedAt", out var ra) && ra.ValueKind == System.Text.Json.JsonValueKind.String ? ra.GetString() : null;
+
+            evidences.Clear();
+            foreach (var e in root.GetProperty("evidences").EnumerateArray())
+            {
+                evidences.Add(new Ev(
+                    e.GetProperty("fileName").GetString() ?? "",
+                    e.GetProperty("sha256").GetString() ?? "",
+                    e.GetProperty("downloadUrl").GetString() ?? ""
+                ));
+            }
+            var ch = root.GetProperty("donorChallenges");
+            loaded = true;
+            MatchCount = ch.GetProperty("matches").GetInt32();
+            MismatchCount = ch.GetProperty("mismatches").GetInt32();
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    async Task Challenge(string verdict)
+    {
+        busy = true; challengeMsg = "";
+        try
+        {
+            var client = HttpFactory.CreateClient();
+            client.BaseAddress = new Uri(Nav.BaseUri);
+            var resp = await client.PostAsJsonAsync($"/api/expenses/{ExpenseId}/challenge", new { verdict, comment });
+            var body = await resp.Content.ReadAsStringAsync();
+            challengeMsg = resp.IsSuccessStatusCode ? "Thanks — feedback recorded." : body;
+            await Load();
+        }
+        catch (Exception ex) { challengeMsg = ex.Message; }
+        finally { busy = false; }
+    }
+
+    record Ev(string FileName, string Sha256, string DownloadUrl);
+}

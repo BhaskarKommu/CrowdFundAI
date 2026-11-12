@@ -1,0 +1,181 @@
+@page "/admin/transactions"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject NavigationManager Nav
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Transactions — CrowdFund AI</PageTitle>
+
+<div class="page-container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            <h1 class="fw-bold mb-0">Transaction management</h1>
+            <p class="text-muted small mb-0">Search, filter, export, and reconcile payments</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-primary btn-sm" href="@ExportUrl("csv")">Export CSV</a>
+            <a class="btn btn-outline-primary btn-sm" href="@ExportUrl("xlsx")">Export Excel</a>
+            <button class="btn btn-primary btn-sm" @onclick="RunReconcile">Reconcile</button>
+        </div>
+    </div>
+
+    <div class="cf-card mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small mb-0">Search</label>
+                <input class="form-control form-control-sm" @bind="search" placeholder="Txn ref, Order ID, email…" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Status</label>
+                <select class="form-select form-select-sm" @bind="status">
+                    <option value="">All</option>
+                    <option>Captured</option>
+                    <option>PendingApproval</option>
+                    <option>Authorized</option>
+                    <option>Pending</option>
+                    <option>Failed</option>
+                    <option>Cancelled</option>
+                    <option>Refunded</option>
+                    <option>PartiallyCaptured</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">Customer email</label>
+                <input class="form-control form-control-sm" @bind="customerEmail" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">From (UTC)</label>
+                <input type="date" class="form-control form-control-sm" @bind="fromDate" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">To (UTC)</label>
+                <input type="date" class="form-control form-control-sm" @bind="toDate" />
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-sm btn-primary w-100" @onclick="Load">Filter</button>
+            </div>
+        </div>
+    </div>
+
+    @if (reconcileJson != null)
+    {
+        <div class="alert alert-secondary small"><pre class="mb-0" style="white-space:pre-wrap;max-height:200px;overflow:auto;">@reconcileJson</pre></div>
+    }
+
+    <div class="cf-card">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr class="small">
+                        <th>Reference</th>
+                        <th>Customer</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Status</th>
+                        <th>Refund</th>
+                        <th>Date</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var t in rows)
+                {
+                    <tr class="small">
+                        <td>
+                            <div><code>@(t.TransactionReference ?? t.TransactionId.ToString()[..8])</code></div>
+                            <div class="text-muted">Order: @(t.PayPalOrderId ?? "—")</div>
+                        </td>
+                        <td>@(t.CustomerEmail ?? t.CustomerId ?? "Guest")</td>
+                        <td>@t.Amount.ToString("N2") @t.Currency</td>
+                        <td>@t.PaymentMethod</td>
+                        <td><span class="badge bg-secondary">@t.Status</span></td>
+                        <td>@t.RefundStatus</td>
+                        <td>@t.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td><button class="btn btn-link btn-sm p-0" @onclick="() => ShowDetail(t.TransactionId)">Details</button></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+            @if (rows.Count == 0) { <p class="text-muted small p-3 mb-0">No transactions</p> }
+        </div>
+    </div>
+
+    @if (detailJson != null)
+    {
+        <div class="cf-card mt-3">
+            <h5 class="fw-bold">Transaction detail</h5>
+            <pre class="small mb-0" style="white-space:pre-wrap;max-height:420px;overflow:auto;">@detailJson</pre>
+        </div>
+    }
+</div>
+
+@code {
+    string? search, status, customerEmail, reconcileJson, detailJson;
+    DateTime? fromDate, toDate;
+    List<TxnVm> rows = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    string ExportUrl(string kind)
+    {
+        var qs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(search)) qs.Add("search=" + Uri.EscapeDataString(search));
+        if (!string.IsNullOrWhiteSpace(status)) qs.Add("status=" + Uri.EscapeDataString(status));
+        if (!string.IsNullOrWhiteSpace(customerEmail)) qs.Add("customerEmail=" + Uri.EscapeDataString(customerEmail));
+        if (fromDate.HasValue) qs.Add("from=" + fromDate.Value.ToString("yyyy-MM-dd"));
+        if (toDate.HasValue) qs.Add("to=" + toDate.Value.ToString("yyyy-MM-dd"));
+        var q = qs.Count > 0 ? "?" + string.Join("&", qs) : "";
+        return kind == "csv" ? $"/api/admin/transactions/export.csv{q}" : $"/api/admin/transactions/export.xlsx{q}";
+    }
+
+    async Task Load()
+    {
+        var c = HttpFactory.CreateClient();
+        c.BaseAddress = new Uri(Nav.BaseUri);
+        var qs = new List<string> { "take=100" };
+        if (!string.IsNullOrWhiteSpace(search)) qs.Add("search=" + Uri.EscapeDataString(search));
+        if (!string.IsNullOrWhiteSpace(status)) qs.Add("status=" + Uri.EscapeDataString(status));
+        if (!string.IsNullOrWhiteSpace(customerEmail)) qs.Add("customerEmail=" + Uri.EscapeDataString(customerEmail));
+        if (fromDate.HasValue) qs.Add("from=" + fromDate.Value.ToString("yyyy-MM-dd"));
+        if (toDate.HasValue) qs.Add("to=" + toDate.Value.ToString("yyyy-MM-dd"));
+        try
+        {
+            var resp = await c.GetFromJsonAsync<SearchVm>($"/api/admin/transactions?{string.Join("&", qs)}");
+            rows = resp?.Transactions ?? new();
+        }
+        catch { rows = new(); }
+    }
+
+    async Task ShowDetail(Guid id)
+    {
+        var c = HttpFactory.CreateClient();
+        c.BaseAddress = new Uri(Nav.BaseUri);
+        var json = await c.GetStringAsync($"/api/admin/transactions/{id}");
+        detailJson = json;
+    }
+
+    async Task RunReconcile()
+    {
+        var c = HttpFactory.CreateClient();
+        c.BaseAddress = new Uri(Nav.BaseUri);
+        reconcileJson = await c.GetStringAsync("/api/admin/transactions/reconcile");
+    }
+
+    public class SearchVm { public List<TxnVm> Transactions { get; set; } = new(); }
+    public class TxnVm
+    {
+        public Guid TransactionId { get; set; }
+        public string? TransactionReference { get; set; }
+        public string? PayPalOrderId { get; set; }
+        public string? PayPalCaptureId { get; set; }
+        public string? CustomerId { get; set; }
+        public string? CustomerEmail { get; set; }
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "USD";
+        public string PaymentMethod { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string RefundStatus { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+    }
+}
