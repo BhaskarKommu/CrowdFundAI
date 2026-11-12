@@ -29,9 +29,12 @@ dotnet ef database update --project CrowdFund.Infrastructure --startup-project C
 ```
 Open the printed HTTPS URL.
 
-| Account | Credentials |
-|---------|-------------|
-| Admin | `admin@crowdfundai.demo` / `Admin123!` |
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | admin@crowdfundai.demo | Admin123! |
+| Auditor | auditor@crowdfundai.demo | Auditor123! |
+| Creator | creator1@crowdfundai.demo | Creator123! |
+| Donor | donor1@crowdfundai.demo | Donor123! |
 
 PayPal defaults to **simulate mode** (`PayPal:Simulate = true`). Set ClientId/Secret and `Simulate: false` for real sandbox.
 
